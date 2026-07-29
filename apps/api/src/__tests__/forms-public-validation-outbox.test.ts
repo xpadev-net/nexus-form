@@ -131,6 +131,7 @@ vi.mock("../lib/sessions/jwt", () => ({
 }));
 
 vi.mock("../lib/queues", () => ({
+  enqueueResponseLinkAnalysisJob: vi.fn(() => Promise.resolve()),
   getFormSubmitNotificationQueue: vi.fn(() => ({
     add: mocks.addNotificationJob,
   })),

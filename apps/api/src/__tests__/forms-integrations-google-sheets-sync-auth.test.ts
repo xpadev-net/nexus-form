@@ -60,6 +60,7 @@ vi.mock("../lib/queues", () => ({
       delay: 30_000,
     },
   },
+  enqueueResponseLinkAnalysisJob: vi.fn(() => Promise.resolve()),
   getSheetsSyncQueue: () => ({
     addBulk: mocks.addBulk,
     getJob: mocks.getJob,

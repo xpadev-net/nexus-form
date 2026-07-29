@@ -9,6 +9,10 @@ import {
   formStructure,
   formValidationRule,
   formValidationRuleBlock,
+  responseLinkAnalysisRun,
+  responsePairLink,
+  responseSuspicionGroup,
+  responseSuspicionGroupMember,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
@@ -23,6 +27,7 @@ import {
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   parseValidationOutputExportSettings,
+  RESPONSE_LINK_MODEL_VERSION,
   type ResponseExportValidationOutputValue,
   responsePayloadItemSchema,
   type ValidationOutputExportSettings,
@@ -54,7 +59,11 @@ import { getExternalValidationResults } from "../lib/forms/validation-results";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 import { logError, logWarn } from "../lib/logger";
-import { getValidationQueue, isValidServiceName } from "../lib/queues";
+import {
+  enqueueResponseLinkAnalysisJob,
+  getValidationQueue,
+  isValidServiceName,
+} from "../lib/queues";
 import { createRateLimit } from "../lib/rate-limit";
 import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
 import { stringifyResponseDataJson } from "../lib/response-data-json";
@@ -64,7 +73,10 @@ import {
   InvalidResponseDataErrorResponseSchema,
   ResponseDetailResponseSchema,
   ResponseIdsResponseSchema,
+  ResponseLinkAnalysisRecalculateResponseSchema,
   ResponseMutationResponseSchema,
+  ResponseSuspicionGroupDetailResponseSchema,
+  ResponseSuspicionGroupsResponseSchema,
   ResponsesListResponseSchema,
   ValidationRetryEnqueueErrorResponseSchema,
   ValidationRetryResponseSchema,
@@ -456,6 +468,87 @@ function addUniquenessScore<T extends { id: string }>(
     ...row,
     uniquenessScore: scores === null ? null : (scores.get(row.id) ?? 1),
   };
+}
+
+const linkSummarySchema = z
+  .object({
+    reasonCodes: z.array(z.string()).optional(),
+    topFamilies: z
+      .array(
+        z.object({
+          family: z.string(),
+          score: z.number(),
+          reasonCodes: z.array(z.string()),
+        }),
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const pairBreakdownSchema = z
+  .object({
+    reasonCodes: z.array(z.string()).optional(),
+    familyContributions: z
+      .array(
+        z.object({
+          family: z.string(),
+          score: z.number(),
+          reasonCodes: z.array(z.string()),
+        }),
+      )
+      .optional(),
+  })
+  .passthrough();
+
+function parseLinkSummary(value: unknown): {
+  reasonCodes: string[];
+  topFamilies: Array<{ family: string; score: number; reasonCodes: string[] }>;
+} {
+  const parsed = linkSummarySchema.safeParse(value);
+  return {
+    reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
+    topFamilies: parsed.success ? (parsed.data.topFamilies ?? []) : [],
+  };
+}
+
+function parsePairBreakdown(value: unknown): {
+  reasonCodes: string[];
+  familyContributions: Array<{
+    family: string;
+    score: number;
+    reasonCodes: string[];
+  }>;
+} {
+  const parsed = pairBreakdownSchema.safeParse(value);
+  return {
+    reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
+    familyContributions: parsed.success
+      ? (parsed.data.familyContributions ?? [])
+      : [],
+  };
+}
+
+async function getLatestCompletedResponseLinkRun(formId: string) {
+  const [run] = await db
+    .select({
+      id: responseLinkAnalysisRun.id,
+      modelVersion: responseLinkAnalysisRun.modelVersion,
+      statsVersion: responseLinkAnalysisRun.statsVersion,
+      populationSize: responseLinkAnalysisRun.populationSize,
+      completedAt: responseLinkAnalysisRun.completedAt,
+    })
+    .from(responseLinkAnalysisRun)
+    .where(
+      and(
+        eq(responseLinkAnalysisRun.formId, formId),
+        eq(responseLinkAnalysisRun.modelVersion, RESPONSE_LINK_MODEL_VERSION),
+        eq(responseLinkAnalysisRun.status, "COMPLETED"),
+      ),
+    )
+    .orderBy(desc(responseLinkAnalysisRun.completedAt))
+    .limit(1);
+
+  return run ?? null;
 }
 
 function decorateResponseRow<T extends { id: string }>(
@@ -2035,6 +2128,17 @@ export const formsResponsesRouter = createHonoApp()
         .where(eq(formResponse.id, id))
         .limit(1);
 
+      enqueueResponseLinkAnalysisJob({
+        formId,
+        reason: "response-submitted",
+      }).catch((error) => {
+        logError("Failed to queue response link analysis", "forms-responses", {
+          error,
+          responseId: id,
+          formId,
+        });
+      });
+
       return c.json(
         ResponseMutationResponseSchema.parse({ response: created ?? null }),
         201,
@@ -2217,6 +2321,192 @@ export const formsResponsesRouter = createHonoApp()
       });
     },
   )
+  .get("/:id/responses/suspicion-groups", async (c) => {
+    const formId = c.req.param("id");
+    const run = await getLatestCompletedResponseLinkRun(formId);
+    if (!run) {
+      return c.json(
+        ResponseSuspicionGroupsResponseSchema.parse({
+          run: null,
+          groups: [],
+        }),
+      );
+    }
+
+    const rows = await db
+      .select({
+        groupKey: responseSuspicionGroup.groupKey,
+        technicalConfidence: responseSuspicionGroup.technicalConfidence,
+        responseCount: responseSuspicionGroup.responseCount,
+        strongLinkCount: responseSuspicionGroup.strongLinkCount,
+        supportLinkCount: responseSuspicionGroup.supportLinkCount,
+        summaryJson: responseSuspicionGroup.summaryJson,
+      })
+      .from(responseSuspicionGroup)
+      .where(eq(responseSuspicionGroup.runId, run.id))
+      .orderBy(
+        desc(responseSuspicionGroup.responseCount),
+        desc(responseSuspicionGroup.strongLinkCount),
+      );
+
+    return c.json(
+      ResponseSuspicionGroupsResponseSchema.parse({
+        run: {
+          ...run,
+          completedAt: run.completedAt?.toISOString() ?? null,
+        },
+        groups: rows.map((row) => {
+          const summary = parseLinkSummary(row.summaryJson);
+          return {
+            groupKey: row.groupKey,
+            technicalConfidence: row.technicalConfidence,
+            responseCount: row.responseCount,
+            strongLinkCount: row.strongLinkCount,
+            supportLinkCount: row.supportLinkCount,
+            reasonCodes: summary.reasonCodes,
+            topFamilies: summary.topFamilies,
+          };
+        }),
+      }),
+    );
+  })
+  .get("/:id/responses/suspicion-groups/:groupKey", async (c) => {
+    const formId = c.req.param("id");
+    const groupKey = c.req.param("groupKey");
+    const run = await getLatestCompletedResponseLinkRun(formId);
+    const empty = {
+      run: run
+        ? {
+            ...run,
+            completedAt: run.completedAt?.toISOString() ?? null,
+          }
+        : null,
+      group: null,
+      members: [],
+      links: [],
+    };
+    if (!run) {
+      return c.json(ResponseSuspicionGroupDetailResponseSchema.parse(empty));
+    }
+
+    const [groupRow] = await db
+      .select({
+        id: responseSuspicionGroup.id,
+        groupKey: responseSuspicionGroup.groupKey,
+        technicalConfidence: responseSuspicionGroup.technicalConfidence,
+        responseCount: responseSuspicionGroup.responseCount,
+        strongLinkCount: responseSuspicionGroup.strongLinkCount,
+        supportLinkCount: responseSuspicionGroup.supportLinkCount,
+        summaryJson: responseSuspicionGroup.summaryJson,
+      })
+      .from(responseSuspicionGroup)
+      .where(
+        and(
+          eq(responseSuspicionGroup.runId, run.id),
+          eq(responseSuspicionGroup.groupKey, groupKey),
+        ),
+      )
+      .limit(1);
+
+    if (!groupRow) {
+      return c.json(ResponseSuspicionGroupDetailResponseSchema.parse(empty));
+    }
+
+    const members = await db
+      .select({
+        responseId: responseSuspicionGroupMember.responseId,
+        submittedAt: formResponse.submittedAt,
+        respondentUuid: formResponse.respondentUuid,
+        strongestStrength: responseSuspicionGroupMember.strongestStrength,
+        strongestEvidence: responseSuspicionGroupMember.strongestEvidence,
+      })
+      .from(responseSuspicionGroupMember)
+      .innerJoin(
+        formResponse,
+        eq(responseSuspicionGroupMember.responseId, formResponse.id),
+      )
+      .where(eq(responseSuspicionGroupMember.groupId, groupRow.id))
+      .orderBy(desc(formResponse.submittedAt));
+
+    const memberIdList = members.map((member) => member.responseId);
+    const memberIds = new Set(memberIdList);
+    const linkRows =
+      memberIds.size > 0
+        ? await db
+            .select({
+              responseIdA: responsePairLink.responseIdA,
+              responseIdB: responsePairLink.responseIdB,
+              strength: responsePairLink.strength,
+              deviceEvidence: responsePairLink.deviceEvidence,
+              v4Support: responsePairLink.v4Support,
+              v6Strong: responsePairLink.v6Strong,
+              stateSupport: responsePairLink.stateSupport,
+              breakdownJson: responsePairLink.breakdownJson,
+            })
+            .from(responsePairLink)
+            .where(
+              and(
+                eq(responsePairLink.runId, run.id),
+                inArray(responsePairLink.responseIdA, memberIdList),
+                inArray(responsePairLink.responseIdB, memberIdList),
+              ),
+            )
+        : [];
+    const summary = parseLinkSummary(groupRow.summaryJson);
+
+    return c.json(
+      ResponseSuspicionGroupDetailResponseSchema.parse({
+        run: {
+          ...run,
+          completedAt: run.completedAt?.toISOString() ?? null,
+        },
+        group: {
+          groupKey: groupRow.groupKey,
+          technicalConfidence: groupRow.technicalConfidence,
+          responseCount: groupRow.responseCount,
+          strongLinkCount: groupRow.strongLinkCount,
+          supportLinkCount: groupRow.supportLinkCount,
+          reasonCodes: summary.reasonCodes,
+          topFamilies: summary.topFamilies,
+        },
+        members: members.map((member) => ({
+          responseId: member.responseId,
+          submittedAt: member.submittedAt.toISOString(),
+          respondentUuid: member.respondentUuid,
+          strongestStrength: member.strongestStrength,
+          strongestEvidence: member.strongestEvidence,
+        })),
+        links: linkRows
+          .filter(
+            (link) =>
+              memberIds.has(link.responseIdA) &&
+              memberIds.has(link.responseIdB),
+          )
+          .map((link) => {
+            const breakdown = parsePairBreakdown(link.breakdownJson);
+            return {
+              responseIdA: link.responseIdA,
+              responseIdB: link.responseIdB,
+              strength: link.strength,
+              deviceEvidence: link.deviceEvidence,
+              v4Support: link.v4Support,
+              v6Strong: link.v6Strong,
+              stateSupport: link.stateSupport,
+              reasonCodes: breakdown.reasonCodes,
+              familyContributions: breakdown.familyContributions,
+            };
+          }),
+      }),
+    );
+  })
+  .post("/:id/responses/link-analysis/recalculate", async (c) => {
+    const formId = c.req.param("id");
+    await enqueueResponseLinkAnalysisJob({ formId, reason: "manual" });
+    return c.json(
+      ResponseLinkAnalysisRecalculateResponseSchema.parse({ enqueued: true }),
+      202,
+    );
+  })
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
     const responseId = c.req.param("responseId");

@@ -96,6 +96,29 @@ export {
   PasswordProtectionPublicationStateSchema,
 } from "./forms/password-protection-publication";
 export type {
+  CanonicalFingerprintSignal,
+  CanonicalSignalQuality,
+  FamilyContribution,
+  FingerprintSignalInput,
+  PairEvidenceBreakdown,
+  RarityStats,
+  ResponseLinkAnalysisResponse,
+  ResponseLinkFamily,
+  ResponseLinkStrength,
+  ResponsePairLinkEvaluation,
+  ResponseSuspicionGroupEvaluation,
+} from "./forms/response-link-model-v2";
+export {
+  buildRarityStats,
+  buildResponseSuspicionGroups,
+  canonicalizeFingerprintSignal,
+  canonicalizeResponseSignals,
+  evaluateResponsePairLink,
+  RESPONSE_LINK_FAMILIES,
+  RESPONSE_LINK_MODEL_VERSION,
+  RESPONSE_LINK_STRENGTHS,
+} from "./forms/response-link-model-v2";
+export type {
   ComponentMap,
   PairwiseMatchResult,
   ResponseWithFingerprints,
@@ -364,6 +387,7 @@ export {
 } from "./validation-results";
 export type {
   GenericValidationJobData,
+  ResponseLinkAnalysisJobData,
   SheetsSyncJobData,
   SheetsSyncMode,
 } from "./worker-jobs";
@@ -374,6 +398,7 @@ export {
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
+  responseLinkAnalysisJobDataSchema,
   SHEETS_SYNC_AUTO_JOB_PREFIX,
   SHEETS_SYNC_MANUAL_JOB_PREFIX,
   sanitizeValidationResultIdForRetryJob,

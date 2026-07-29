@@ -201,6 +201,7 @@ vi.mock("../lib/logger", () => ({
 }));
 
 vi.mock("../lib/queues", () => ({
+  enqueueResponseLinkAnalysisJob: vi.fn(() => Promise.resolve()),
   getValidationQueue: vi.fn(() => ({ add: mocks.queueAdd })),
   isValidServiceName: vi.fn(() => true),
 }));

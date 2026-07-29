@@ -104,3 +104,12 @@ export const sheetsSyncJobDataSchema = z.object({
 });
 
 export type SheetsSyncJobData = z.infer<typeof sheetsSyncJobDataSchema>;
+
+export const responseLinkAnalysisJobDataSchema = z.object({
+  formId: z.string().min(1),
+  reason: z.enum(["response-submitted", "manual"]),
+});
+
+export type ResponseLinkAnalysisJobData = z.infer<
+  typeof responseLinkAnalysisJobDataSchema
+>;

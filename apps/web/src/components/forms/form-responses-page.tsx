@@ -8,7 +8,15 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { BarChart3, List, Loader2, RefreshCw, Trash2, X } from "lucide-react";
+import {
+  BarChart3,
+  Link2,
+  List,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { toast } from "sonner";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
@@ -18,6 +26,7 @@ import {
   ResponseFilter,
   type ValidationFilterStatus,
 } from "@/components/forms/response-filter";
+import { ResponseSuspicionGroups } from "@/components/forms/response-suspicion-groups";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,7 +44,7 @@ import { useValidationSSE } from "@/hooks/forms/use-validation-sse";
 import { client, rpc } from "@/lib/api";
 import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
-type ViewMode = "list" | "analytics";
+type ViewMode = "list" | "analytics" | "groups";
 
 export type { ValidationFilterStatus };
 
@@ -500,6 +509,22 @@ export function FormResponsesContent({
               <BarChart3 className="h-3.5 w-3.5" />
               分析
             </button>
+            <button
+              type="button"
+              onClick={() =>
+                dispatch({ type: "set-view-mode", viewMode: "groups" })
+              }
+              aria-pressed={state.viewMode === "groups"}
+              className={[
+                "flex items-center gap-1 px-3 py-1.5 text-sm transition-colors",
+                state.viewMode === "groups"
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-muted",
+              ].join(" ")}
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              疑義グループ
+            </button>
           </fieldset>
         </div>
       </div>
@@ -508,6 +533,12 @@ export function FormResponsesContent({
       {state.viewMode === "analytics" && (
         <section className="rounded-lg border bg-card p-6 shadow-sm">
           <FormResponseAnalytics formId={formId} />
+        </section>
+      )}
+
+      {state.viewMode === "groups" && (
+        <section className="rounded-lg border bg-card p-6 shadow-sm">
+          <ResponseSuspicionGroups formId={formId} />
         </section>
       )}
 

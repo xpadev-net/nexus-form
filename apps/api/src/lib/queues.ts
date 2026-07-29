@@ -1,4 +1,8 @@
-import { FORM_SUBMIT_NOTIFICATION_QUEUE } from "@nexus-form/shared";
+import {
+  addJobWithCleanup,
+  FORM_SUBMIT_NOTIFICATION_QUEUE,
+  responseLinkAnalysisJobDataSchema,
+} from "@nexus-form/shared";
 import { type DefaultJobOptions, Queue } from "bullmq";
 import { getRedisConnection } from "./redis";
 
@@ -43,6 +47,7 @@ export const SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS =
 
 let _sheetsSyncQueue: Queue | null = null;
 let _formSubmitNotificationQueue: Queue | null = null;
+let _responseLinkAnalysisQueue: Queue | null = null;
 
 const _validationQueues: Map<string, Queue> = new Map();
 
@@ -99,11 +104,35 @@ export function getFormSubmitNotificationQueue(): Queue {
   return _formSubmitNotificationQueue;
 }
 
+export function getResponseLinkAnalysisQueue(): Queue {
+  if (!_responseLinkAnalysisQueue) {
+    const { connection } = getRedisConnection();
+    _responseLinkAnalysisQueue = new Queue("response-link-analysis", {
+      connection,
+      defaultJobOptions: NOTIFICATION_JOB_DEFAULTS,
+    });
+  }
+  return _responseLinkAnalysisQueue;
+}
+
+export async function enqueueResponseLinkAnalysisJob(params: {
+  formId: string;
+  reason: "response-submitted" | "manual";
+}): Promise<void> {
+  const jobData = responseLinkAnalysisJobDataSchema.parse(params);
+  await addJobWithCleanup(getResponseLinkAnalysisQueue(), {
+    jobData,
+    jobId: `response-link-analysis.${params.formId}`,
+    jobName: params.reason,
+  });
+}
+
 export async function closeQueues(): Promise<void> {
   const queues = [
     ..._validationQueues.values(),
     ...(_sheetsSyncQueue ? [_sheetsSyncQueue] : []),
     ...(_formSubmitNotificationQueue ? [_formSubmitNotificationQueue] : []),
+    ...(_responseLinkAnalysisQueue ? [_responseLinkAnalysisQueue] : []),
   ];
   try {
     await Promise.all(queues.map((queue) => queue.close()));
@@ -111,5 +140,6 @@ export async function closeQueues(): Promise<void> {
     _validationQueues.clear();
     _sheetsSyncQueue = null;
     _formSubmitNotificationQueue = null;
+    _responseLinkAnalysisQueue = null;
   }
 }

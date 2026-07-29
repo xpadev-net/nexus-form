@@ -14,6 +14,7 @@ import Redis from "ioredis";
 import { z } from "zod";
 import { handleFormSubmitNotifications } from "./handlers/form-submit-notifications";
 import { handleGenericValidation } from "./handlers/generic-validation";
+import { handleResponseLinkAnalysis } from "./handlers/response-link-analysis";
 import {
   AUTH_REQUIRED_SYNC_ERROR_PREFIX,
   handleSheetsSync,
@@ -37,6 +38,7 @@ import { createWorker } from "./lib/worker-factory";
 import {
   FORM_SUBMIT_NOTIFICATION_QUEUE,
   GOOGLE_SHEETS_SYNC_QUEUE,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
   selectWorkerQueues,
   validateWorkerQueuesEnv,
 } from "./lib/worker-queue-selection";
@@ -230,6 +232,12 @@ async function main() {
         FORM_SUBMIT_NOTIFICATION_QUEUE,
         handleFormSubmitNotifications,
       ),
+    );
+  }
+
+  if (selectedQueues.includeResponseLinkAnalysis) {
+    workers.push(
+      createWorker(RESPONSE_LINK_ANALYSIS_QUEUE, handleResponseLinkAnalysis),
     );
   }
 

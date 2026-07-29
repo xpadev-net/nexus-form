@@ -519,6 +519,134 @@ export const fingerprintDetail = mysqlTable(
   ],
 );
 
+// ── Response Link Analysis Shadow Results ───────────────────────────
+
+export const responseLinkAnalysisRun = mysqlTable(
+  "ResponseLinkAnalysisRun",
+  {
+    id: varchar("id", { length: 128 }).primaryKey(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
+    modelVersion: varchar("modelVersion", { length: 64 }).notNull(),
+    statsVersion: varchar("statsVersion", { length: 128 }),
+    status: varchar("status", { length: 32 }).notNull(),
+    populationSize: int("populationSize").notNull().default(0),
+    startedAt: timestamp("startedAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+    errorMessage: text("errorMessage"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("RLAR_formId_status_completedAt_idx").on(
+      table.formId,
+      table.status,
+      table.completedAt,
+    ),
+    index("RLAR_formId_modelVersion_idx").on(table.formId, table.modelVersion),
+  ],
+);
+
+export const responsePairLink = mysqlTable(
+  "ResponsePairLink",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    runId: varchar("runId", { length: 128 })
+      .notNull()
+      .references(() => responseLinkAnalysisRun.id, { onDelete: "cascade" }),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
+    responseIdA: varchar("responseIdA", { length: 128 })
+      .notNull()
+      .references(() => formResponse.id, { onDelete: "cascade" }),
+    responseIdB: varchar("responseIdB", { length: 128 })
+      .notNull()
+      .references(() => formResponse.id, { onDelete: "cascade" }),
+    strength: varchar("strength", { length: 16 }).notNull(),
+    deviceEvidence: float("deviceEvidence").notNull().default(0),
+    v4Support: boolean("v4Support").default(false).notNull(),
+    v6Strong: boolean("v6Strong").default(false).notNull(),
+    stateSupport: boolean("stateSupport").default(false).notNull(),
+    breakdownJson: json("breakdownJson").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("RPL_run_pair_unique").on(
+      table.runId,
+      table.responseIdA,
+      table.responseIdB,
+    ),
+    index("RPL_formId_runId_strength_idx").on(
+      table.formId,
+      table.runId,
+      table.strength,
+    ),
+    index("RPL_runId_responseA_idx").on(table.runId, table.responseIdA),
+    index("RPL_runId_responseB_idx").on(table.runId, table.responseIdB),
+  ],
+);
+
+export const responseSuspicionGroup = mysqlTable(
+  "ResponseSuspicionGroup",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    runId: varchar("runId", { length: 128 })
+      .notNull()
+      .references(() => responseLinkAnalysisRun.id, { onDelete: "cascade" }),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
+    groupKey: varchar("groupKey", { length: 512 }).notNull(),
+    technicalConfidence: varchar("technicalConfidence", {
+      length: 16,
+    }).notNull(),
+    responseCount: int("responseCount").notNull().default(0),
+    strongLinkCount: int("strongLinkCount").notNull().default(0),
+    supportLinkCount: int("supportLinkCount").notNull().default(0),
+    summaryJson: json("summaryJson").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("RSG_run_groupKey_unique").on(table.runId, table.groupKey),
+    index("RSG_formId_runId_confidence_idx").on(
+      table.formId,
+      table.runId,
+      table.technicalConfidence,
+    ),
+  ],
+);
+
+export const responseSuspicionGroupMember = mysqlTable(
+  "ResponseSuspicionGroupMember",
+  {
+    id: varchar("id", { length: 255 }).primaryKey(),
+    runId: varchar("runId", { length: 128 })
+      .notNull()
+      .references(() => responseLinkAnalysisRun.id, { onDelete: "cascade" }),
+    groupId: varchar("groupId", { length: 255 })
+      .notNull()
+      .references(() => responseSuspicionGroup.id, { onDelete: "cascade" }),
+    responseId: varchar("responseId", { length: 128 })
+      .notNull()
+      .references(() => formResponse.id, { onDelete: "cascade" }),
+    strongestStrength: varchar("strongestStrength", { length: 16 }).notNull(),
+    strongestEvidence: float("strongestEvidence").notNull().default(0),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("RSGM_group_response_unique").on(
+      table.groupId,
+      table.responseId,
+    ),
+    index("RSGM_run_response_idx").on(table.runId, table.responseId),
+  ],
+);
+
 // ── User Invite ─────────────────────────────────────────────────────
 
 export const userInvite = mysqlTable(
