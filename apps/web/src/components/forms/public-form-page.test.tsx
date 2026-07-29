@@ -1144,7 +1144,6 @@ describe("PublicFormPage", () => {
       param: { publicId: "public-1" },
       json: expect.objectContaining({
         b: expect.any(String),
-        d: expect.any(String),
         n: expect.any(String),
         r: "challenge-token",
         v: 1,

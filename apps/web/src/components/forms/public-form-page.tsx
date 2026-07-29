@@ -177,15 +177,6 @@ async function xorWithDerivedStream(
   return output;
 }
 
-async function sha256Hex(value: string): Promise<string> {
-  const digest = new Uint8Array(
-    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
-  );
-  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(
-    "",
-  );
-}
-
 function randomClientNonce(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -196,11 +187,10 @@ async function buildFingerprintExchangeBlob(params: {
   challengeToken: string;
   exchangeNonce: string;
   clientNonce: string;
-  challengeTokenHash: string;
   fieldMap: [string, string, string];
   componentOrder: number[];
   fingerprints: { type: FingerprintType; name: string; value_hash: string }[];
-}): Promise<{ blob: string; digest: string }> {
+}): Promise<string> {
   const [typeKey, nameKey, hashKey] = params.fieldMap;
   const orderIndex = new Map(
     params.componentOrder.map((code, index) => [code, index]),
@@ -228,30 +218,7 @@ async function buildFingerprintExchangeBlob(params: {
     params.exchangeNonce,
     params.clientNonce,
   ].join("\0");
-  const canonicalDetails = params.fingerprints
-    .map((fingerprint) => [
-      fingerprint.type,
-      fingerprint.name,
-      fingerprint.value_hash,
-    ])
-    .sort(([leftType, leftName], [rightType, rightName]) => {
-      const typeOrder = String(leftType).localeCompare(String(rightType));
-      if (typeOrder !== 0) return typeOrder;
-      return String(leftName).localeCompare(String(rightName));
-    });
-  const digest = await sha256Hex(
-    [
-      "nexus-exchange-observation-v1",
-      params.challengeTokenHash,
-      params.exchangeNonce,
-      params.clientNonce,
-      JSON.stringify(canonicalDetails),
-    ].join("\0"),
-  );
-  return {
-    blob: base64UrlEncode(await xorWithDerivedStream(plaintext, seed)),
-    digest,
-  };
+  return base64UrlEncode(await xorWithDerivedStream(plaintext, seed));
 }
 
 interface PublicFormPageState {
@@ -770,12 +737,8 @@ function PublicFormPageInner() {
             );
           }
           const clientNonce = randomClientNonce();
-          const challengeTokenHash = await sha256Hex(
-            `fingerprint-exchange-token:${exchangeOpen.r}`,
-          );
-          const { blob, digest } = await buildFingerprintExchangeBlob({
+          const blob = await buildFingerprintExchangeBlob({
             challengeToken: exchangeOpen.r,
-            challengeTokenHash,
             exchangeNonce: exchangeOpen.n,
             clientNonce,
             fieldMap: [exchangeOpen.m[0], exchangeOpen.m[1], exchangeOpen.m[2]],
@@ -790,7 +753,6 @@ function PublicFormPageInner() {
                 v: fingerprintExchangeVersion,
                 n: clientNonce,
                 b: blob,
-                d: digest,
               },
             }),
           );

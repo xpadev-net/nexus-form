@@ -228,7 +228,6 @@ const exchangeCloseSchema = z
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
     b: z.string().min(1).max(MAX_FINGERPRINT_EXCHANGE_BLOB_LENGTH),
-    d: z.string().length(64),
   })
   .strict();
 
@@ -560,35 +559,9 @@ function parseExchangeDetails(
   });
 }
 
-function buildExchangeObservationDigest(params: {
-  challengeTokenHash: string;
-  exchangeNonce: string;
-  clientNonce: string;
-  details: Array<{ type: string; name: string; value_hash: string }>;
-}): string {
-  const canonicalDetails = params.details
-    .map((detail) => [detail.type, detail.name, detail.value_hash] as const)
-    .sort(([leftType, leftName], [rightType, rightName]) => {
-      const typeOrder = leftType.localeCompare(rightType);
-      if (typeOrder !== 0) return typeOrder;
-      return leftName.localeCompare(rightName);
-    });
-
-  return createHash("sha256")
-    .update("nexus-exchange-observation-v1")
-    .update("\0")
-    .update(params.challengeTokenHash)
-    .update("\0")
-    .update(params.exchangeNonce)
-    .update("\0")
-    .update(params.clientNonce)
-    .update("\0")
-    .update(JSON.stringify(canonicalDetails))
-    .digest("hex");
-}
-
 function assertExchangeDetailsComplete(
   details: Array<{ type: string; name: string; value_hash: string }>,
+  expectedUserAgentHash: string,
 ): void {
   const countsByType = new Map<string, number>();
   const namesByType = new Map<string, Set<string>>();
@@ -611,6 +584,13 @@ function assertExchangeDetailsComplete(
     if (!browserNames.has(name)) {
       throw new Error("Security exchange payload is incomplete");
     }
+  }
+
+  const userAgentDetail = details.find(
+    (detail) => detail.type === "browser" && detail.name === "userAgent",
+  );
+  if (userAgentDetail?.value_hash !== expectedUserAgentHash) {
+    throw new Error("Security exchange payload conflicts with request context");
   }
 }
 
@@ -1094,8 +1074,6 @@ export const formsPublicRouter = createHonoApp()
             .select({
               id: fingerprintCollectionAttempt.id,
               formId: fingerprintCollectionAttempt.formId,
-              challengeTokenHash:
-                fingerprintCollectionAttempt.challengeTokenHash,
               observedIpHash: fingerprintCollectionAttempt.observedIpHash,
               userAgentHash: fingerprintCollectionAttempt.userAgentHash,
               exchangeVersion: fingerprintCollectionAttempt.exchangeVersion,
@@ -1144,16 +1122,7 @@ export const formsPublicRouter = createHonoApp()
             uniqueDetails.set(`${detail.type}\0${detail.name}`, detail);
           }
           const acceptedDetails = [...uniqueDetails.values()];
-          assertExchangeDetailsComplete(acceptedDetails);
-          const expectedDigest = buildExchangeObservationDigest({
-            challengeTokenHash: attempt.challengeTokenHash,
-            exchangeNonce: attempt.exchangeNonce,
-            clientNonce: payload.n,
-            details: acceptedDetails,
-          });
-          if (payload.d !== expectedDigest) {
-            throw new Error("Security exchange digest mismatch");
-          }
+          assertExchangeDetailsComplete(acceptedDetails, attempt.userAgentHash);
 
           await tx
             .update(fingerprintCollectionAttempt)
