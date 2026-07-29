@@ -104,6 +104,10 @@ const FINGERPRINT_CHALLENGE_TTL_MS = 3 * 60 * 1000;
 const FINGERPRINT_COLLECTION_TTL_MS = 5 * 60 * 1000;
 const TEST_FINGERPRINT_COLLECTION_TOKEN = "test-security-check-token";
 const SECURITY_EXCHANGE_COOKIE_NAME = "nf_sc";
+const SECURITY_OBSERVATION_FAMILY_BROWSER = 1;
+const SECURITY_OBSERVATION_FAMILY_FPJS = 2;
+const SECURITY_OBSERVATION_FAMILY_THUMBMARK = 3;
+const SECURITY_OBSERVATION_VALUE_HASH_PATTERN = /^[0-9a-f]{64}$/;
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
@@ -221,6 +225,15 @@ const exchangeCloseSchema = z
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
     p: z.string().min(1).max(MAX_TOKEN_LENGTH),
+    d: z
+      .array(
+        z.tuple([
+          z.string().min(8).max(64),
+          z.string().regex(SECURITY_OBSERVATION_VALUE_HASH_PATTERN),
+        ]),
+      )
+      .min(6)
+      .max(512),
   })
   .strict();
 
@@ -229,6 +242,13 @@ const exchangeOpenResponseSchema = z.object({
   v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
   c: z.literal(FINGERPRINT_COLLECTOR_VERSION),
   n: z.string(),
+  q: z.array(
+    z.tuple([
+      z.string().min(8).max(64),
+      z.number().int().min(1).max(3),
+      z.string().min(1).max(16),
+    ]),
+  ),
   e: z.number().int(),
 });
 
@@ -239,6 +259,7 @@ const exchangeCloseResponseSchema = z.object({
 
 const securityReceiptPayloadSchema = z.object({
   a: z.string().min(1),
+  d: z.string().length(64),
   e: z.number().int(),
   f: z.string().min(1),
   n: z.string().min(1),
@@ -453,10 +474,12 @@ function createSecurityReceiptToken(params: {
   attemptId: string;
   expiresAt: Date;
   formId: string;
+  observationDigest: string;
   publicId: string;
 }): string {
   const encodedPayload = base64UrlJson({
     a: params.attemptId,
+    d: params.observationDigest,
     e: params.expiresAt.valueOf(),
     f: params.formId,
     n: randomToken(16),
@@ -473,6 +496,7 @@ function verifySecurityReceiptToken(
   attemptId: string;
   expiresAt: number;
   formId: string;
+  observationDigest: string;
   publicId: string;
 } | null {
   const [encodedPayload, signature, extra] = token.split(".");
@@ -497,6 +521,7 @@ function verifySecurityReceiptToken(
       attemptId: parsed.a,
       expiresAt: parsed.e,
       formId: parsed.f,
+      observationDigest: parsed.d,
       publicId: parsed.u,
     };
   } catch {
@@ -513,7 +538,193 @@ class FingerprintCollectionTokenError extends Error {
 
 const exchangeServerContextSchema = z.object({
   k: z.string().length(64),
+  s: z.array(
+    z.object({
+      a: z.string().min(8).max(64),
+      f: z.number().int().min(1).max(3),
+      n: z.string().min(1).max(64),
+      r: z.boolean(),
+      c: z.string().min(1).max(16),
+    }),
+  ),
 });
+
+const exchangeObservationContextSchema = z.object({
+  d: z.string().length(64),
+});
+
+type ExchangeObservationTuple = z.infer<
+  typeof exchangeCloseSchema
+>["d"][number];
+
+type SecurityObservationPlanEntry = {
+  a: string;
+  f: number;
+  n: string;
+  r: boolean;
+  c: string;
+};
+
+const securityObservationTemplate = [
+  {
+    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
+    n: "timezone",
+    r: true,
+    c: "a1",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
+    n: "language",
+    r: true,
+    c: "a2",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
+    n: "platform",
+    r: true,
+    c: "a3",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
+    n: "userAgent",
+    r: true,
+    c: "a4",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_FPJS,
+    n: "visitorId",
+    r: true,
+    c: "b1",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_FPJS,
+    n: "canvas",
+    r: true,
+    c: "b2",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_FPJS,
+    n: "fonts",
+    r: true,
+    c: "b3",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_FPJS,
+    n: "screen",
+    r: true,
+    c: "b4",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
+    n: "audio",
+    r: false,
+    c: "c1",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
+    n: "canvas",
+    r: false,
+    c: "c2",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
+    n: "webgl",
+    r: false,
+    c: "c3",
+  },
+  {
+    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
+    n: "fonts",
+    r: false,
+    c: "c4",
+  },
+];
+
+function buildSecurityObservationPlan(): SecurityObservationPlanEntry[] {
+  const plan = securityObservationTemplate.map((entry) => ({
+    ...entry,
+    a: randomToken(12),
+  }));
+  for (let index = plan.length - 1; index > 0; index -= 1) {
+    const randomIndex = randomBytes(1).readUInt8(0) % (index + 1);
+    const current = plan[index];
+    const replacement = plan[randomIndex];
+    if (current && replacement) {
+      plan[index] = replacement;
+      plan[randomIndex] = current;
+    }
+  }
+  return plan;
+}
+
+function digestSecurityObservations(params: {
+  challengeToken: string;
+  clientNonce: string;
+  exchangeNonce: string;
+  observations: ExchangeObservationTuple[];
+  plan: SecurityObservationPlanEntry[];
+  userAgentHash: string;
+}): string {
+  const slots = new Map(params.plan.map((entry) => [entry.a, entry]));
+  const seenSlots = new Set<string>();
+  const families = new Set<number>();
+  const valueHashes = new Set<string>();
+  const observationsBySlot = new Map<string, string>();
+
+  for (const [slot, valueHash] of params.observations) {
+    const entry = slots.get(slot);
+    if (!entry || seenSlots.has(slot)) {
+      throw new Error("Duplicate security observation");
+    }
+    seenSlots.add(slot);
+    observationsBySlot.set(slot, valueHash);
+    families.add(entry.f);
+    valueHashes.add(valueHash);
+  }
+
+  const missingRequiredSlot = params.plan.some(
+    (entry) => entry.r && !observationsBySlot.has(entry.a),
+  );
+  const userAgentSlot = params.plan.find(
+    (entry) =>
+      entry.f === SECURITY_OBSERVATION_FAMILY_BROWSER &&
+      entry.n === "userAgent",
+  );
+  const userAgentObservationMatches =
+    userAgentSlot &&
+    observationsBySlot.get(userAgentSlot.a) === params.userAgentHash;
+  if (
+    missingRequiredSlot ||
+    !userAgentObservationMatches ||
+    families.size < 2 ||
+    params.observations.length < 6 ||
+    valueHashes.size < 4 ||
+    !families.has(SECURITY_OBSERVATION_FAMILY_BROWSER) ||
+    (!families.has(SECURITY_OBSERVATION_FAMILY_FPJS) &&
+      !families.has(SECURITY_OBSERVATION_FAMILY_THUMBMARK))
+  ) {
+    throw new Error("Incomplete security observation");
+  }
+
+  const canonical = [...observationsBySlot]
+    .map(([slot, valueHash]) => {
+      const entry = slots.get(slot);
+      if (!entry) throw new Error("Invalid security observation slot");
+      return `${slot}:${entry.f}:${entry.c}:${valueHash}`;
+    })
+    .sort()
+    .join("\n");
+  return sha256Hex(
+    [
+      "security-observation-v1",
+      FINGERPRINT_COLLECTOR_VERSION,
+      params.exchangeNonce,
+      params.clientNonce,
+      hashExchangeToken(params.challengeToken),
+      canonical,
+    ].join("\0"),
+  );
+}
 
 function getCookieValue(request: Request, cookieName: string): string | null {
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -639,6 +850,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
       observedIpHash: fingerprintCollectionAttempt.observedIpHash,
       userAgentHash: fingerprintCollectionAttempt.userAgentHash,
       collectionExpiresAt: fingerprintCollectionAttempt.collectionExpiresAt,
+      componentOrderJson: fingerprintCollectionAttempt.componentOrderJson,
       consumedAt: fingerprintCollectionAttempt.consumedAt,
       finalizedAt: fingerprintCollectionAttempt.finalizedAt,
     })
@@ -663,6 +875,16 @@ async function consumeFingerprintCollectionOrThrow(params: {
     attempt.consumedAt ||
     !attempt.collectionExpiresAt ||
     attempt.collectionExpiresAt <= now
+  ) {
+    throw new FingerprintCollectionTokenError();
+  }
+
+  const observationContext = exchangeObservationContextSchema.safeParse(
+    attempt.componentOrderJson,
+  );
+  if (
+    !observationContext.success ||
+    observationContext.data.d !== receipt.observationDigest
   ) {
     throw new FingerprintCollectionTokenError();
   }
@@ -985,6 +1207,7 @@ export const formsPublicRouter = createHonoApp()
       const challengeToken = randomToken();
       const serverContextToken = randomToken(24);
       const exchangeNonce = randomToken(16);
+      const observationPlan = buildSecurityObservationPlan();
       const challengeExpiresAt = new Date(
         Date.now() + FINGERPRINT_CHALLENGE_TTL_MS,
       );
@@ -1000,7 +1223,10 @@ export const formsPublicRouter = createHonoApp()
         collectorVersion: FINGERPRINT_COLLECTOR_VERSION,
         exchangeVersion: FINGERPRINT_EXCHANGE_VERSION,
         exchangeNonce,
-        fieldMapJson: { k: hashExchangeCookie(serverContextToken) },
+        fieldMapJson: {
+          k: hashExchangeCookie(serverContextToken),
+          s: observationPlan,
+        },
         componentOrderJson: [],
         challengeExpiresAt,
       });
@@ -1018,6 +1244,7 @@ export const formsPublicRouter = createHonoApp()
           v: FINGERPRINT_EXCHANGE_VERSION,
           c: FINGERPRINT_COLLECTOR_VERSION,
           n: exchangeNonce,
+          q: observationPlan.map(({ a, f, c }) => [a, f, c]),
           e: challengeExpiresAt.valueOf(),
         }),
       );
@@ -1067,6 +1294,7 @@ export const formsPublicRouter = createHonoApp()
           }
         }
         let collectionToken = "";
+        let observationDigest = "";
         const collectionExpiresAt = new Date(
           Date.now() + FINGERPRINT_COLLECTION_TTL_MS,
         );
@@ -1120,10 +1348,20 @@ export const formsPublicRouter = createHonoApp()
             throw new Error("Invalid security exchange context");
           }
 
+          observationDigest = digestSecurityObservations({
+            challengeToken: payload.r,
+            clientNonce: payload.n,
+            exchangeNonce: attempt.exchangeNonce,
+            observations: payload.d,
+            plan: serverContext.s,
+            userAgentHash: hashUserAgent(userAgent),
+          });
+
           collectionToken = createSecurityReceiptToken({
             attemptId: attempt.id,
             expiresAt: collectionExpiresAt,
             formId: resolved.target.id,
+            observationDigest,
             publicId,
           });
 
@@ -1132,6 +1370,7 @@ export const formsPublicRouter = createHonoApp()
             .set({
               collectionTokenHash: hashExchangeToken(collectionToken),
               collectionExpiresAt,
+              componentOrderJson: { d: observationDigest },
               finalizedAt: currentTime,
             })
             .where(eq(fingerprintCollectionAttempt.id, attempt.id));

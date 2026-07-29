@@ -225,6 +225,19 @@ function renderPublicForm(container: HTMLElement): Root {
   return root;
 }
 
+function securityPlan(): Array<[string, number, string]> {
+  return [
+    ["slot-timezone", 1, "a1"],
+    ["slot-language", 1, "a2"],
+    ["slot-platform", 1, "a3"],
+    ["slot-user-agent", 1, "a4"],
+    ["slot-visitor", 2, "b1"],
+    ["slot-canvas", 2, "b2"],
+    ["slot-fonts", 2, "b3"],
+    ["slot-screen", 2, "b4"],
+  ];
+}
+
 function mockPublicRpc(
   handler: (request: unknown) => Promise<unknown> | unknown,
 ) {
@@ -235,6 +248,7 @@ function mockPublicRpc(
         v: 1,
         c: "nf-web-1",
         n: "server-nonce",
+        q: securityPlan(),
         e: Date.now() + 60_000,
       };
     }
@@ -562,7 +576,19 @@ describe("PublicFormPage", () => {
       {
         fingerprintType: "browser",
         components: [
-          { componentName: "timezone", componentValueHash: "hash-timezone" },
+          { componentName: "timezone", componentValueHash: "0".repeat(64) },
+          { componentName: "language", componentValueHash: "1".repeat(64) },
+          { componentName: "platform", componentValueHash: "2".repeat(64) },
+          { componentName: "userAgent", componentValueHash: "3".repeat(64) },
+        ],
+      },
+      {
+        fingerprintType: "fingerprintjs",
+        components: [
+          { componentName: "visitorId", componentValueHash: "4".repeat(64) },
+          { componentName: "canvas", componentValueHash: "5".repeat(64) },
+          { componentName: "fonts", componentValueHash: "6".repeat(64) },
+          { componentName: "screen", componentValueHash: "7".repeat(64) },
         ],
       },
     ];
@@ -587,6 +613,7 @@ describe("PublicFormPage", () => {
           v: 1,
           c: "nf-web-1",
           n: "server-nonce",
+          q: securityPlan(),
           e: Date.now() + 60_000,
         };
       }
@@ -1082,6 +1109,9 @@ describe("PublicFormPage", () => {
         fingerprintType: "fingerprintjs",
         components: [
           { componentName: "visitorId", componentValueHash: "hash-visitor" },
+          { componentName: "canvas", componentValueHash: "hash-canvas" },
+          { componentName: "fonts", componentValueHash: "hash-fonts" },
+          { componentName: "screen", componentValueHash: "hash-screen" },
           ...Array.from({ length: 95 }, (_, index) => ({
             componentName: `fingerprintjs-${index}`,
             componentValueHash: `hash-fpjs-${index.toString().padStart(3, "0")}`,
@@ -1106,6 +1136,7 @@ describe("PublicFormPage", () => {
           v: 1,
           c: "nf-web-1",
           n: "server-nonce",
+          q: securityPlan(),
           e: Date.now() + 60_000,
         };
       }
@@ -1137,6 +1168,9 @@ describe("PublicFormPage", () => {
     expect(apiMocks.exchangeClosePost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
       json: expect.objectContaining({
+        d: expect.arrayContaining([
+          expect.arrayContaining([expect.any(String), expect.any(String)]),
+        ]),
         n: expect.any(String),
         p: "form-security-dev-bypass",
         r: "challenge-token",

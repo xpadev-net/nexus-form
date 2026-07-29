@@ -69,6 +69,31 @@ type ResponseSummaryItem = {
   value: string;
 };
 
+type CollectedSignal = {
+  fingerprintType: string;
+  components: Array<{
+    componentName: string;
+    componentValueHash: string;
+  }>;
+};
+
+type SecurityPlanEntry = [string, number, string];
+
+const securityPlanComponentNames = new Map([
+  ["1:a1", { fingerprintType: "browser", componentName: "timezone" }],
+  ["1:a2", { fingerprintType: "browser", componentName: "language" }],
+  ["1:a3", { fingerprintType: "browser", componentName: "platform" }],
+  ["1:a4", { fingerprintType: "browser", componentName: "userAgent" }],
+  ["2:b1", { fingerprintType: "fingerprintjs", componentName: "visitorId" }],
+  ["2:b2", { fingerprintType: "fingerprintjs", componentName: "canvas" }],
+  ["2:b3", { fingerprintType: "fingerprintjs", componentName: "fonts" }],
+  ["2:b4", { fingerprintType: "fingerprintjs", componentName: "screen" }],
+  ["3:c1", { fingerprintType: "thumbmarkjs", componentName: "audio" }],
+  ["3:c2", { fingerprintType: "thumbmarkjs", componentName: "canvas" }],
+  ["3:c3", { fingerprintType: "thumbmarkjs", componentName: "webgl" }],
+  ["3:c4", { fingerprintType: "thumbmarkjs", componentName: "fonts" }],
+]);
+
 function isFormSecurityBypassEnabledForDevelopment(): boolean {
   const formSecurityBypassFlag = getRuntimeConfigValue(
     "formSecurityDevBypass",
@@ -99,6 +124,30 @@ function randomClientNonce(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return base64UrlEncode(bytes);
+}
+
+function buildSecurityEvidence(
+  collected: CollectedSignal[],
+  plan: SecurityPlanEntry[],
+): Array<[string, string]> {
+  const valuesByKey = new Map<string, string>();
+  for (const item of collected) {
+    for (const component of item.components) {
+      valuesByKey.set(
+        `${item.fingerprintType}:${component.componentName}`,
+        component.componentValueHash,
+      );
+    }
+  }
+
+  return plan.flatMap(([slot, family, code]) => {
+    const target = securityPlanComponentNames.get(`${family}:${code}`);
+    if (!target) return [];
+    const valueHash = valuesByKey.get(
+      `${target.fingerprintType}:${target.componentName}`,
+    );
+    return valueHash ? [[slot, valueHash] as [string, string]] : [];
+  });
 }
 
 interface PublicFormPageState {
@@ -609,6 +658,10 @@ function PublicFormPageInner() {
             );
           }
           const clientNonce = randomClientNonce();
+          const securityEvidence = buildSecurityEvidence(
+            collectedFp,
+            exchangeOpen.q,
+          );
           const exchangeClose = await rpc(
             client.api.forms.public[":publicId"].exchange.close.$post({
               param: { publicId },
@@ -617,6 +670,7 @@ function PublicFormPageInner() {
                 v: fingerprintExchangeVersion,
                 n: clientNonce,
                 p: captchaToken,
+                d: securityEvidence,
               },
             }),
           );

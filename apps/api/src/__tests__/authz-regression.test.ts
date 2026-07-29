@@ -298,6 +298,32 @@ function securityExchangeHeaders(cookieToken?: string): Record<string, string> {
   };
 }
 
+function securityPlanEntries() {
+  return [
+    { a: "slot-timezone", f: 1, n: "timezone", r: true, c: "a1" },
+    { a: "slot-language", f: 1, n: "language", r: true, c: "a2" },
+    { a: "slot-platform", f: 1, n: "platform", r: true, c: "a3" },
+    { a: "slot-user-agent", f: 1, n: "userAgent", r: true, c: "a4" },
+    { a: "slot-visitor", f: 2, n: "visitorId", r: true, c: "b1" },
+    { a: "slot-canvas", f: 2, n: "canvas", r: true, c: "b2" },
+    { a: "slot-fonts", f: 2, n: "fonts", r: true, c: "b3" },
+    { a: "slot-screen", f: 2, n: "screen", r: true, c: "b4" },
+  ];
+}
+
+function securityEvidenceTuples(): Array<[string, string]> {
+  return [
+    ["slot-timezone", sha256Hex("tz")],
+    ["slot-language", sha256Hex("lang")],
+    ["slot-platform", sha256Hex("plat")],
+    ["slot-user-agent", sha256Hex("")],
+    ["slot-visitor", sha256Hex("vid")],
+    ["slot-canvas", sha256Hex("canvas")],
+    ["slot-fonts", sha256Hex("fonts")],
+    ["slot-screen", sha256Hex("screen")],
+  ];
+}
+
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
   const db = dbRaw as { select: ReturnType<typeof vi.fn> };
   let callIdx = 0;
@@ -1151,6 +1177,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1184,6 +1211,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "nonce",
             p: "test-captcha-token",
+            d: securityEvidenceTuples(),
             require_fingerprint: true,
           }),
         },
@@ -1221,6 +1249,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   exchangeNonce: "server-nonce",
                   fieldMapJson: {
                     k: sha256Hex("security-exchange-cookie:cookie-token"),
+                    s: securityPlanEntries(),
                   },
                   challengeExpiresAt: new Date(Date.now() + 60_000),
                   finalizedAt: null,
@@ -1252,6 +1281,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1288,6 +1318,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   exchangeNonce: "server-nonce",
                   fieldMapJson: {
                     k: sha256Hex("security-exchange-cookie:cookie-token"),
+                    s: securityPlanEntries(),
                   },
                   challengeExpiresAt: new Date(Date.now() + 60_000),
                   finalizedAt: null,
@@ -1319,6 +1350,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1420,6 +1452,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
+            d: securityEvidenceTuples(),
           }),
         },
       );
