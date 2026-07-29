@@ -30,7 +30,7 @@ import {
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import { and, count, eq, isNull, lte } from "drizzle-orm";
+import { and, count, eq, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
@@ -101,6 +101,16 @@ const FINGERPRINT_CHALLENGE_TTL_MS = 3 * 60 * 1000;
 const FINGERPRINT_COLLECTION_TTL_MS = 5 * 60 * 1000;
 const MAX_FINGERPRINT_EXCHANGE_BLOB_LENGTH = 100_000;
 const TEST_FINGERPRINT_COLLECTION_TOKEN = "test-security-check-token";
+const REQUIRED_EXCHANGE_TYPES = [
+  "browser",
+  "fingerprintjs",
+  "thumbmarkjs",
+] as const;
+const MIN_EXCHANGE_COMPONENTS_BY_TYPE = {
+  browser: 4,
+  fingerprintjs: 3,
+  thumbmarkjs: 3,
+} as const;
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
@@ -218,6 +228,7 @@ const exchangeCloseSchema = z
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
     b: z.string().min(1).max(MAX_FINGERPRINT_EXCHANGE_BLOB_LENGTH),
+    d: z.string().length(64),
   })
   .strict();
 
@@ -547,6 +558,76 @@ function parseExchangeDetails(
     }
     return { type, name, value_hash: valueHash };
   });
+}
+
+function buildExchangeObservationDigest(params: {
+  challengeTokenHash: string;
+  exchangeNonce: string;
+  clientNonce: string;
+  details: Array<{ type: string; name: string; value_hash: string }>;
+}): string {
+  const canonicalDetails = params.details
+    .map((detail) => [detail.type, detail.name, detail.value_hash] as const)
+    .sort(([leftType, leftName], [rightType, rightName]) => {
+      const typeOrder = leftType.localeCompare(rightType);
+      if (typeOrder !== 0) return typeOrder;
+      return leftName.localeCompare(rightName);
+    });
+
+  return createHash("sha256")
+    .update("nexus-exchange-observation-v1")
+    .update("\0")
+    .update(params.challengeTokenHash)
+    .update("\0")
+    .update(params.exchangeNonce)
+    .update("\0")
+    .update(params.clientNonce)
+    .update("\0")
+    .update(JSON.stringify(canonicalDetails))
+    .digest("hex");
+}
+
+function assertExchangeDetailsComplete(
+  details: Array<{ type: string; name: string; value_hash: string }>,
+): void {
+  const countsByType = new Map<string, number>();
+  const namesByType = new Map<string, Set<string>>();
+  for (const detail of details) {
+    countsByType.set(detail.type, (countsByType.get(detail.type) ?? 0) + 1);
+    const names = namesByType.get(detail.type) ?? new Set<string>();
+    names.add(detail.name);
+    namesByType.set(detail.type, names);
+  }
+
+  for (const type of REQUIRED_EXCHANGE_TYPES) {
+    const countForType = countsByType.get(type) ?? 0;
+    if (countForType < MIN_EXCHANGE_COMPONENTS_BY_TYPE[type]) {
+      throw new Error("Security exchange payload is incomplete");
+    }
+  }
+
+  const browserNames = namesByType.get("browser") ?? new Set<string>();
+  for (const name of ["timezone", "language", "platform", "userAgent"]) {
+    if (!browserNames.has(name)) {
+      throw new Error("Security exchange payload is incomplete");
+    }
+  }
+}
+
+async function cleanupExpiredSecurityExchanges(
+  currentTime: Date,
+): Promise<void> {
+  await db
+    .delete(fingerprintCollectionAttempt)
+    .where(
+      and(
+        isNull(fingerprintCollectionAttempt.consumedAt),
+        or(
+          lte(fingerprintCollectionAttempt.challengeExpiresAt, currentTime),
+          lte(fingerprintCollectionAttempt.collectionExpiresAt, currentTime),
+        ),
+      ),
+    );
 }
 
 async function consumeFingerprintCollectionOrThrow(params: {
@@ -935,6 +1016,8 @@ export const formsPublicRouter = createHonoApp()
         Date.now() + FINGERPRINT_CHALLENGE_TTL_MS,
       );
 
+      await cleanupExpiredSecurityExchanges(currentTime);
+
       await db.insert(fingerprintCollectionAttempt).values({
         id: randomUUID(),
         formId: resolved.target.id,
@@ -1005,6 +1088,8 @@ export const formsPublicRouter = createHonoApp()
             .select({
               id: fingerprintCollectionAttempt.id,
               formId: fingerprintCollectionAttempt.formId,
+              challengeTokenHash:
+                fingerprintCollectionAttempt.challengeTokenHash,
               observedIpHash: fingerprintCollectionAttempt.observedIpHash,
               userAgentHash: fingerprintCollectionAttempt.userAgentHash,
               exchangeVersion: fingerprintCollectionAttempt.exchangeVersion,
@@ -1052,6 +1137,17 @@ export const formsPublicRouter = createHonoApp()
           for (const detail of details) {
             uniqueDetails.set(`${detail.type}\0${detail.name}`, detail);
           }
+          const acceptedDetails = [...uniqueDetails.values()];
+          assertExchangeDetailsComplete(acceptedDetails);
+          const expectedDigest = buildExchangeObservationDigest({
+            challengeTokenHash: attempt.challengeTokenHash,
+            exchangeNonce: attempt.exchangeNonce,
+            clientNonce: payload.n,
+            details: acceptedDetails,
+          });
+          if (payload.d !== expectedDigest) {
+            throw new Error("Security exchange digest mismatch");
+          }
 
           await tx
             .update(fingerprintCollectionAttempt)
@@ -1063,7 +1159,7 @@ export const formsPublicRouter = createHonoApp()
             .where(eq(fingerprintCollectionAttempt.id, attempt.id));
 
           await tx.insert(fingerprintCollectionDetail).values(
-            [...uniqueDetails.values()].map((detail) => ({
+            acceptedDetails.map((detail) => ({
               id: randomUUID(),
               attemptId: attempt.id,
               fingerprintType: detail.type,

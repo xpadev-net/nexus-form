@@ -819,8 +819,8 @@
         }
       },
       "foreignKeys": {
-        "FingerprintCollectionAttempt_formId_Form_id_fk": {
-          "name": "FingerprintCollectionAttempt_formId_Form_id_fk",
+        "FCA_formId_fk": {
+          "name": "FCA_formId_fk",
           "tableFrom": "FingerprintCollectionAttempt",
           "tableTo": "Form",
           "columnsFrom": ["formId"],
@@ -828,8 +828,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "FingerprintCollectionAttempt_consumedResponseId_FormResponse_id_fk": {
-          "name": "FingerprintCollectionAttempt_consumedResponseId_FormResponse_id_fk",
+        "FCA_consumedResponseId_fk": {
+          "name": "FCA_consumedResponseId_fk",
           "tableFrom": "FingerprintCollectionAttempt",
           "tableTo": "FormResponse",
           "columnsFrom": ["consumedResponseId"],
@@ -904,8 +904,8 @@
         }
       },
       "indexes": {
-        "FingerprintCollectionDetail_attemptId_fingerprintType_componentName_key": {
-          "name": "FingerprintCollectionDetail_attemptId_fingerprintType_componentName_key",
+        "FCD_attempt_type_component_key": {
+          "name": "FCD_attempt_type_component_key",
           "columns": ["attemptId", "fingerprintType", "componentName"],
           "isUnique": true
         },
@@ -921,8 +921,8 @@
         }
       },
       "foreignKeys": {
-        "FingerprintCollectionDetail_attemptId_FingerprintCollectionAttempt_id_fk": {
-          "name": "FingerprintCollectionDetail_attemptId_FingerprintCollectionAttempt_id_fk",
+        "FCD_attemptId_fk": {
+          "name": "FCD_attemptId_fk",
           "tableFrom": "FingerprintCollectionDetail",
           "tableTo": "FingerprintCollectionAttempt",
           "columnsFrom": ["attemptId"],

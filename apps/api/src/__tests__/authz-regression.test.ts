@@ -1145,6 +1145,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             b: "AAAA",
+            d: "0".repeat(64),
           }),
         },
       );
@@ -1279,6 +1280,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             b: "AAAA",
+            d: "0".repeat(64),
           }),
         },
       );

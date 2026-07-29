@@ -7,6 +7,7 @@ import {
   bigint,
   boolean,
   float,
+  foreignKey,
   index,
   int,
   json,
@@ -167,9 +168,7 @@ export const formSchedule = mysqlTable(
   "FormSchedule",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 })
-      .notNull()
-      .references(() => form.id, { onDelete: "cascade" }),
+    formId: varchar("formId", { length: 128 }).notNull(),
     triggerAt: timestamp("triggerAt").notNull(),
     action: formScheduleActionEnum.notNull(),
     snapshotVersion: int("snapshotVersion"),
@@ -548,7 +547,7 @@ export const fingerprintCollectionAttempt = mysqlTable(
     consumedAt: timestamp("consumedAt"),
     consumedResponseId: varchar("consumedResponseId", {
       length: 128,
-    }).references(() => formResponse.id, { onDelete: "set null" }),
+    }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   (table) => [
@@ -564,6 +563,16 @@ export const fingerprintCollectionAttempt = mysqlTable(
       table.collectionExpiresAt,
     ),
     index("FingerprintCollectionAttempt_consumedAt_idx").on(table.consumedAt),
+    foreignKey({
+      columns: [table.formId],
+      foreignColumns: [form.id],
+      name: "FCA_formId_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.consumedResponseId],
+      foreignColumns: [formResponse.id],
+      name: "FCA_consumedResponseId_fk",
+    }).onDelete("set null"),
   ],
 );
 
@@ -571,11 +580,7 @@ export const fingerprintCollectionDetail = mysqlTable(
   "FingerprintCollectionDetail",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    attemptId: varchar("attemptId", { length: 128 })
-      .notNull()
-      .references(() => fingerprintCollectionAttempt.id, {
-        onDelete: "cascade",
-      }),
+    attemptId: varchar("attemptId", { length: 128 }).notNull(),
     fingerprintType: varchar("fingerprintType", { length: 50 }).notNull(),
     componentName: varchar("componentName", { length: 255 }).notNull(),
     componentValueHash: varchar("componentValueHash", {
@@ -584,13 +589,20 @@ export const fingerprintCollectionDetail = mysqlTable(
     collectedAt: timestamp("collectedAt").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex(
-      "FingerprintCollectionDetail_attemptId_fingerprintType_componentName_key",
-    ).on(table.attemptId, table.fingerprintType, table.componentName),
+    uniqueIndex("FCD_attempt_type_component_key").on(
+      table.attemptId,
+      table.fingerprintType,
+      table.componentName,
+    ),
     index("FingerprintCollectionDetail_attemptId_idx").on(table.attemptId),
     index("FingerprintCollectionDetail_fingerprintType_idx").on(
       table.fingerprintType,
     ),
+    foreignKey({
+      columns: [table.attemptId],
+      foreignColumns: [fingerprintCollectionAttempt.id],
+      name: "FCD_attemptId_fk",
+    }).onDelete("cascade"),
   ],
 );
 

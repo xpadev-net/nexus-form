@@ -29,14 +29,14 @@ CREATE TABLE `FingerprintCollectionDetail` (
 	`componentValueHash` varchar(255) NOT NULL,
 	`collectedAt` timestamp NOT NULL DEFAULT (now()),
 	CONSTRAINT `FingerprintCollectionDetail_id` PRIMARY KEY(`id`),
-	CONSTRAINT `FingerprintCollectionDetail_attemptId_fingerprintType_componentName_key` UNIQUE(`attemptId`,`fingerprintType`,`componentName`)
+	CONSTRAINT `FCD_attempt_type_component_key` UNIQUE(`attemptId`,`fingerprintType`,`componentName`)
 );
 --> statement-breakpoint
-ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FingerprintCollectionAttempt_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FCA_formId_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FingerprintCollectionAttempt_consumedResponseId_FormResponse_id_fk` FOREIGN KEY (`consumedResponseId`) REFERENCES `FormResponse`(`id`) ON DELETE set null ON UPDATE no action;
+ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FCA_consumedResponseId_fk` FOREIGN KEY (`consumedResponseId`) REFERENCES `FormResponse`(`id`) ON DELETE set null ON UPDATE no action;
 --> statement-breakpoint
-ALTER TABLE `FingerprintCollectionDetail` ADD CONSTRAINT `FingerprintCollectionDetail_attemptId_FingerprintCollectionAttempt_id_fk` FOREIGN KEY (`attemptId`) REFERENCES `FingerprintCollectionAttempt`(`id`) ON DELETE cascade ON UPDATE no action;
+ALTER TABLE `FingerprintCollectionDetail` ADD CONSTRAINT `FCD_attemptId_fk` FOREIGN KEY (`attemptId`) REFERENCES `FingerprintCollectionAttempt`(`id`) ON DELETE cascade ON UPDATE no action;
 --> statement-breakpoint
 CREATE INDEX `FingerprintCollectionAttempt_formId_idx` ON `FingerprintCollectionAttempt` (`formId`);
 --> statement-breakpoint
