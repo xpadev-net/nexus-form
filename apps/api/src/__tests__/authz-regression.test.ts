@@ -824,10 +824,9 @@ describe("R15-C1: public submit persists linked security evidence", () => {
       expect(res.status).toBe(201);
       expect(txSpy).toHaveBeenCalledOnce();
       expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
-      expect(insertedFingerprints).toHaveLength(2);
+      expect(insertedFingerprints).toHaveLength(1);
       expect(insertedFingerprints).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ fingerprintType: "browser" }),
           expect.objectContaining({
             fingerprintType: "telemetry",
             componentName: "v4",
@@ -911,12 +910,8 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         ["tok-v4", "tok-v6"],
         "127.0.0.1",
       );
-      expect(insertedFingerprints).toHaveLength(3);
+      expect(insertedFingerprints).toHaveLength(2);
       expect(insertedFingerprints).toEqual([
-        expect.objectContaining({
-          fingerprintType: "browser",
-          componentName: "security-check",
-        }),
         expect.objectContaining({
           fingerprintType: "telemetry",
           componentName: "v4",

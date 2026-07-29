@@ -594,7 +594,6 @@ test.describe("共有リンク編集画面", () => {
       {
         data: {
           captchaToken: "ci-form-security-bypass",
-          fingerprints: [],
           responses: [
             {
               question_id: seeded.questionBlockId,

@@ -637,18 +637,24 @@ async function consumeFingerprintCollectionOrThrow(params: {
   currentIp: string;
   userAgent: string | undefined;
   responseId: string;
-}): Promise<Array<{ type: string; name: string; value_hash: string }>> {
+}): Promise<{
+  attemptId: string | null;
+  details: Array<{ type: string; name: string; value_hash: string }>;
+}> {
   if (
     process.env.NODE_ENV === "test" &&
     params.token === TEST_FINGERPRINT_COLLECTION_TOKEN
   ) {
-    return [
-      {
-        type: "browser",
-        name: "security-check",
-        value_hash: "test-security-check-hash",
-      },
-    ];
+    return {
+      attemptId: null,
+      details: [
+        {
+          type: "browser",
+          name: "security-check",
+          value_hash: "test-security-check-hash",
+        },
+      ],
+    };
   }
 
   const now = new Date();
@@ -703,7 +709,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
     .set({ consumedAt: now, consumedResponseId: params.responseId })
     .where(eq(fingerprintCollectionAttempt.id, attempt.id));
 
-  return details;
+  return { attemptId: attempt.id, details };
 }
 
 function extractBlockIdsFromPlateContent(plateContent: string): Set<string> {
@@ -1548,7 +1554,7 @@ export const formsPublicRouter = createHonoApp()
             countryCode: null,
           });
 
-          const collectionFingerprints =
+          const collectionResult =
             requireSecurityCheck && payload.securityVerificationToken
               ? await consumeFingerprintCollectionOrThrow({
                   tx,
@@ -1558,7 +1564,7 @@ export const formsPublicRouter = createHonoApp()
                   userAgent,
                   responseId,
                 })
-              : [];
+              : { attemptId: null, details: [] };
 
           const telemetryFingerprints = consumedTelemetryTokens.map(
             (token) => ({
@@ -1568,10 +1574,9 @@ export const formsPublicRouter = createHonoApp()
             }),
           );
 
-          const allFingerprints = [
-            ...collectionFingerprints,
-            ...telemetryFingerprints,
-          ];
+          // Client-side exchange observations are intentionally not copied into
+          // response-level evidence; they only gate this submission attempt.
+          const allFingerprints = telemetryFingerprints;
 
           if (allFingerprints.length > 0) {
             await tx.insert(fingerprintDetail).values(
@@ -1584,6 +1589,14 @@ export const formsPublicRouter = createHonoApp()
                 componentValueHash: fp.value_hash,
               })),
             );
+          }
+
+          if (collectionResult.attemptId) {
+            await tx
+              .delete(fingerprintCollectionAttempt)
+              .where(
+                eq(fingerprintCollectionAttempt.id, collectionResult.attemptId),
+              );
           }
 
           if (validationOutbox) {
