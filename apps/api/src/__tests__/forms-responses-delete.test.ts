@@ -29,6 +29,12 @@ const mocks = vi.hoisted(() => {
       tableName: "formResponse",
     },
     formValidationRule: {},
+    responseLinkAnalysisRun: {
+      formId: "responseLinkAnalysisRun.formId",
+      modelVersion: "responseLinkAnalysisRun.modelVersion",
+      status: "responseLinkAnalysisRun.status",
+      tableName: "responseLinkAnalysisRun",
+    },
   };
 
   return {
@@ -43,6 +49,7 @@ const mocks = vi.hoisted(() => {
     schema,
     tx: {
       delete: vi.fn(),
+      update: vi.fn(),
     },
     whereConditions: [] as Array<unknown>,
   };
@@ -175,6 +182,17 @@ function deleteQuery(tableName: string) {
   };
 }
 
+function updateQuery(tableName: string) {
+  return {
+    set: vi.fn((values: unknown) => ({
+      where: vi.fn((condition: unknown) => {
+        mocks.whereConditions.push({ tableName, condition, values });
+        return Promise.resolve([{ affectedRows: 1 }]);
+      }),
+    })),
+  };
+}
+
 function tableName(table: unknown): string {
   if (typeof table !== "object" || table === null) return "unknown";
   const value = Reflect.get(table, "tableName");
@@ -203,6 +221,9 @@ beforeEach(() => {
     mocks.deleteTables.push(name);
     return deleteQuery(name);
   });
+  mocks.tx.update.mockImplementation((table: unknown) =>
+    updateQuery(tableName(table)),
+  );
 });
 
 describe("response deletion API", () => {
@@ -256,6 +277,26 @@ describe("response deletion API", () => {
     expect(mocks.whereConditions).toContainEqual({
       tableName: "formResponse",
       condition: { op: "eq", left: "formResponse.id", right: "response-1" },
+    });
+    expect(mocks.whereConditions).toContainEqual({
+      tableName: "responseLinkAnalysisRun",
+      values: { status: "STALE" },
+      condition: {
+        op: "and",
+        conditions: [
+          { op: "eq", left: "responseLinkAnalysisRun.formId", right: "form-1" },
+          {
+            op: "eq",
+            left: "responseLinkAnalysisRun.modelVersion",
+            right: "response-link-v2-rarity-shadow",
+          },
+          {
+            op: "eq",
+            left: "responseLinkAnalysisRun.status",
+            right: "COMPLETED",
+          },
+        ],
+      },
     });
   });
 

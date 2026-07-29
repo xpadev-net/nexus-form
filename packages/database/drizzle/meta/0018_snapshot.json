@@ -2559,6 +2559,13 @@
           "autoincrement": false,
           "default": 0
         },
+        "metadataJson": {
+          "name": "metadataJson",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "startedAt": {
           "name": "startedAt",
           "type": "timestamp",

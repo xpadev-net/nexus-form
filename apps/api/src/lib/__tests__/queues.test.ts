@@ -20,6 +20,7 @@ type MockQueue = {
   options: QueueOptions;
   add: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
+  getJob: ReturnType<typeof vi.fn>;
 };
 
 const mocks = vi.hoisted(() => {
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => {
       options,
       add: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
+      getJob: vi.fn(async () => null),
     };
     queueInstances.push(queue);
     return queue;
@@ -99,7 +101,7 @@ describe("queues", () => {
     });
   });
 
-  it("uses unique response link analysis job ids so active jobs do not drop follow-up analysis", async () => {
+  it("coalesces response link analysis jobs by form", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
 
@@ -117,17 +119,34 @@ describe("queues", () => {
       1,
       "response-submitted",
       { formId: "form-1", reason: "response-submitted" },
-      { jobId: expect.stringMatching(/^response-link-analysis\.form-1\./) },
+      { delay: 10_000, jobId: "response-link-analysis.form-1" },
     );
     expect(queue?.add).toHaveBeenNthCalledWith(
       2,
       "response-deleted",
       { formId: "form-1", reason: "response-deleted" },
-      { jobId: expect.stringMatching(/^response-link-analysis\.form-1\./) },
+      { delay: 10_000, jobId: "response-link-analysis.form-1" },
     );
-    const firstJobId = queue?.add.mock.calls[0]?.[2]?.jobId;
-    const secondJobId = queue?.add.mock.calls[1]?.[2]?.jobId;
-    expect(firstJobId).not.toBe(secondJobId);
+  });
+
+  it("coalesces active response link analysis changes into one follow-up job", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    queue?.getJob.mockResolvedValue({
+      getState: vi.fn(async () => "active"),
+      remove: vi.fn(async () => undefined),
+    });
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      { delay: 10_000, jobId: "response-link-analysis.form-1.follow-up" },
+    );
   });
 
   it("exposes retry options for manual sheets sync jobs", () => {

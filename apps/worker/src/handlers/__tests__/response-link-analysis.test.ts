@@ -190,7 +190,7 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("fails instead of persisting truncated results when the candidate cap is exceeded", async () => {
+  it("persists partial results when the candidate cap is exceeded", async () => {
     mocks.responseRows = Array.from({ length: 318 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
@@ -198,16 +198,26 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    await expect(analyzeResponseLinks("form-1")).rejects.toThrow(
-      "Response link analysis candidate pair cap exceeded",
-    );
+    const result = await analyzeResponseLinks("form-1");
 
+    expect(result.linkCount).toBe(50_000);
+    expect(result.groupCount).toBe(1);
+    const pairInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responsePairLink",
+    );
     expect(
-      mocks.txInsertedRows.some((entry) => entry.table === "responsePairLink"),
-    ).toBe(false);
-    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
+      Array.isArray(pairInsert?.values) ? pairInsert.values : [],
+    ).toHaveLength(50_000);
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "FAILED" }),
+      expect.objectContaining({
+        metadataJson: {
+          candidatePairCount: 50_000,
+          candidatePairLimit: 50_000,
+          candidatePairsTruncated: true,
+        },
+        status: "COMPLETED",
+      }),
     );
   });
 

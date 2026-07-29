@@ -20,7 +20,7 @@ export interface QueueWithJobLookupLike<TJobData> {
   add(
     jobName: string,
     jobData: TJobData,
-    options: { jobId: string },
+    options: { delay?: number; jobId: string },
   ): Promise<unknown>;
 }
 
@@ -31,6 +31,7 @@ export interface QueueWithJobLookupLike<TJobData> {
 export async function addJobWithCleanup<TJobData>(
   queue: QueueWithJobLookupLike<TJobData>,
   params: {
+    delay?: number;
     jobData: TJobData;
     jobId: string;
     jobName: string;
@@ -51,6 +52,7 @@ export async function addJobWithCleanup<TJobData>(
   }
 
   await queue.add(params.jobName, params.jobData, {
+    ...(params.delay !== undefined ? { delay: params.delay } : {}),
     jobId: params.jobId,
   });
 }

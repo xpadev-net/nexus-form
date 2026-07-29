@@ -2654,6 +2654,19 @@ export const formsResponsesRouter = createHonoApp()
           .delete(externalServiceValidationResult)
           .where(eq(externalServiceValidationResult.responseId, responseId));
         await tx.delete(formResponse).where(eq(formResponse.id, responseId));
+        await tx
+          .update(responseLinkAnalysisRun)
+          .set({ status: "STALE" })
+          .where(
+            and(
+              eq(responseLinkAnalysisRun.formId, formId),
+              eq(
+                responseLinkAnalysisRun.modelVersion,
+                RESPONSE_LINK_MODEL_VERSION,
+              ),
+              eq(responseLinkAnalysisRun.status, "COMPLETED"),
+            ),
+          );
       });
       enqueueResponseLinkAnalysisJob({
         formId,
@@ -2728,6 +2741,19 @@ export const formsResponsesRouter = createHonoApp()
             await tx
               .delete(formResponse)
               .where(inArray(formResponse.id, idsToDelete));
+            await tx
+              .update(responseLinkAnalysisRun)
+              .set({ status: "STALE" })
+              .where(
+                and(
+                  eq(responseLinkAnalysisRun.formId, formId),
+                  eq(
+                    responseLinkAnalysisRun.modelVersion,
+                    RESPONSE_LINK_MODEL_VERSION,
+                  ),
+                  eq(responseLinkAnalysisRun.status, "COMPLETED"),
+                ),
+              );
           });
 
           for (const id of idsToDelete) {

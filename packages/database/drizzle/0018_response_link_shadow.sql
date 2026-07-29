@@ -5,6 +5,7 @@ CREATE TABLE `ResponseLinkAnalysisRun` (
 	`statsVersion` varchar(128),
 	`status` varchar(32) NOT NULL,
 	`populationSize` int NOT NULL DEFAULT 0,
+	`metadataJson` json,
 	`startedAt` timestamp NOT NULL DEFAULT (now()),
 	`completedAt` timestamp,
 	`errorMessage` text,

@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import {
+  addJobWithCleanup,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
@@ -41,6 +41,8 @@ const NOTIFICATION_JOB_DEFAULTS: DefaultJobOptions = {
   ...JOB_RETENTION_DEFAULTS,
   ...STANDARD_QUEUE_RETRY_JOB_OPTIONS,
 };
+
+const RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS = 10_000;
 
 export const SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS =
   STANDARD_QUEUE_RETRY_JOB_OPTIONS;
@@ -120,8 +122,20 @@ export async function enqueueResponseLinkAnalysisJob(params: {
   reason: "response-submitted" | "response-deleted" | "manual";
 }): Promise<void> {
   const jobData = responseLinkAnalysisJobDataSchema.parse(params);
-  await getResponseLinkAnalysisQueue().add(params.reason, jobData, {
-    jobId: `response-link-analysis.${params.formId}.${randomUUID()}`,
+  const queue = getResponseLinkAnalysisQueue();
+  const primaryJobId = `response-link-analysis.${params.formId}`;
+  const primaryJob = await queue.getJob(primaryJobId);
+  const primaryState = await primaryJob?.getState();
+  const jobId =
+    primaryState === "active" || primaryState === "waiting-children"
+      ? `${primaryJobId}.follow-up`
+      : primaryJobId;
+
+  await addJobWithCleanup(queue, {
+    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+    jobData,
+    jobId,
+    jobName: params.reason,
   });
 }
 

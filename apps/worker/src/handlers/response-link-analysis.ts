@@ -25,6 +25,11 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 const CANDIDATE_BUCKET_LIMIT = 200;
 const MAX_CANDIDATE_PAIRS = 50_000;
 
+type CandidatePairBuildResult = {
+  candidatePairs: Set<string>;
+  truncated: boolean;
+};
+
 type ResponseRow = {
   id: string;
   sessionId: string | null;
@@ -60,29 +65,29 @@ function addBucketPairs(
   candidatePairs: Set<string>,
   responseIds: Iterable<string>,
   options: { bucketLimit?: number } = {},
-): void {
+): boolean {
   const ids = [...new Set(responseIds)].sort();
-  if (ids.length < 2) return;
-  if (options.bucketLimit && ids.length > options.bucketLimit) return;
+  if (ids.length < 2) return false;
+  if (options.bucketLimit && ids.length > options.bucketLimit) return false;
   for (let i = 0; i < ids.length; i += 1) {
     for (let j = i + 1; j < ids.length; j += 1) {
       const left = ids[i];
       const right = ids[j];
       if (!left || !right) continue;
       if (candidatePairs.size >= MAX_CANDIDATE_PAIRS) {
-        throw new Error(
-          `Response link analysis candidate pair cap exceeded (${MAX_CANDIDATE_PAIRS})`,
-        );
+        return true;
       }
       candidatePairs.add(pairKey(left, right));
     }
   }
+  return false;
 }
 
 function buildCandidatePairs(
   responses: ResponseLinkAnalysisResponse[],
-): Set<string> {
+): CandidatePairBuildResult {
   const candidatePairs = new Set<string>();
+  let truncated = false;
   const sessionBuckets = new Map<string, string[]>();
   const respondentBuckets = new Map<string, string[]>();
   const uaBuckets = new Map<string, string[]>();
@@ -145,19 +150,22 @@ function buildCandidatePairs(
     strongSignalBuckets,
   ]) {
     for (const responseIds of buckets.values()) {
-      addBucketPairs(candidatePairs, responseIds);
+      truncated = addBucketPairs(candidatePairs, responseIds) || truncated;
+      if (truncated) return { candidatePairs, truncated };
     }
   }
 
   for (const buckets of [boundedSignalBuckets, uaBuckets]) {
     for (const responseIds of buckets.values()) {
-      addBucketPairs(candidatePairs, responseIds, {
-        bucketLimit: CANDIDATE_BUCKET_LIMIT,
-      });
+      truncated =
+        addBucketPairs(candidatePairs, responseIds, {
+          bucketLimit: CANDIDATE_BUCKET_LIMIT,
+        }) || truncated;
+      if (truncated) return { candidatePairs, truncated };
     }
   }
 
-  return candidatePairs;
+  return { candidatePairs, truncated };
 }
 
 async function loadResponses(
@@ -215,10 +223,19 @@ async function persistResults(params: {
   runId: string;
   links: ResponsePairLinkEvaluation[];
   groups: ReturnType<typeof buildResponseSuspicionGroups>;
+  metadataJson: Record<string, unknown>;
   statsVersion: string;
   populationSize: number;
 }): Promise<void> {
-  const { formId, groups, links, populationSize, runId, statsVersion } = params;
+  const {
+    formId,
+    groups,
+    links,
+    metadataJson,
+    populationSize,
+    runId,
+    statsVersion,
+  } = params;
 
   await db.transaction(async (tx) => {
     if (links.length > 0) {
@@ -310,6 +327,7 @@ async function persistResults(params: {
         status: "COMPLETED",
         statsVersion,
         populationSize,
+        metadataJson,
         completedAt: new Date(),
         errorMessage: null,
       })
@@ -337,7 +355,7 @@ export async function analyzeResponseLinks(formId: string): Promise<{
     const responsesById = new Map(
       responses.map((response) => [response.id, response]),
     );
-    const candidatePairs = buildCandidatePairs(responses);
+    const { candidatePairs, truncated } = buildCandidatePairs(responses);
     const links: ResponsePairLinkEvaluation[] = [];
 
     for (const key of candidatePairs) {
@@ -356,6 +374,11 @@ export async function analyzeResponseLinks(formId: string): Promise<{
       runId,
       links,
       groups,
+      metadataJson: {
+        candidatePairCount: candidatePairs.size,
+        candidatePairLimit: MAX_CANDIDATE_PAIRS,
+        candidatePairsTruncated: truncated,
+      },
       statsVersion: stats.statsVersion,
       populationSize: stats.populationSize,
     });

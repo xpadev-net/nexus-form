@@ -533,6 +533,7 @@ export const responseLinkAnalysisRun = mysqlTable(
     statsVersion: varchar("statsVersion", { length: 128 }),
     status: varchar("status", { length: 32 }).notNull(),
     populationSize: int("populationSize").notNull().default(0),
+    metadataJson: json("metadataJson"),
     startedAt: timestamp("startedAt").defaultNow().notNull(),
     completedAt: timestamp("completedAt"),
     errorMessage: text("errorMessage"),
