@@ -43,10 +43,14 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-vi.mock("@nexus-form/shared", () => ({
-  isIsoCalendarDate: (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value),
-  isPlateQuestionType: () => true,
-}));
+vi.mock("@nexus-form/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@nexus-form/shared")>();
+  return {
+    ...actual,
+    isIsoCalendarDate: (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value),
+    isPlateQuestionType: () => true,
+  };
+});
 
 vi.mock("./editor-controls", () => ({
   AllowOtherEditor: () => null,

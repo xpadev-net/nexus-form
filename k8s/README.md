@@ -1096,7 +1096,7 @@ REDIS_URL=redis://host:port
 
 使用するCAPTCHA providerと対応するサイトキー（公開キー）を設定します。`VITE_CAPTCHA_PROVIDER` はAPI側の `CAPTCHA_PROVIDER` と同じ値にしてください。
 
-```
+```dotenv
 VITE_CAPTCHA_PROVIDER=hcaptcha
 VITE_HCAPTCHA_SITE_KEY=your-hcaptcha-site-key
 # Turnstileを使用する場合:

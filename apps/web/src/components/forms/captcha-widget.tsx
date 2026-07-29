@@ -1,16 +1,17 @@
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import {
+  type CaptchaProvider,
+  captchaProviderSchema,
+} from "@nexus-form/shared";
+import {
   type Ref,
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
   useRef,
   useState,
 } from "react";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
-
-type CaptchaProvider = "hcaptcha" | "turnstile";
 
 interface CaptchaWidgetProps {
   onVerify: (token: string) => void;
@@ -63,8 +64,8 @@ function getCaptchaProvider(): CaptchaProvider | null {
     import.meta.env.VITE_CAPTCHA_PROVIDER,
     "hcaptcha",
   );
-  if (provider === "hcaptcha" || provider === "turnstile") return provider;
-  return null;
+  const result = captchaProviderSchema.safeParse(provider);
+  return result.success ? result.data : null;
 }
 
 function loadTurnstileScript(): Promise<void> {
@@ -73,14 +74,41 @@ function loadTurnstileScript(): Promise<void> {
   if (turnstileScriptPromise) return turnstileScriptPromise;
 
   turnstileScriptPromise = new Promise((resolve, reject) => {
+    const completeScriptLoad = (script: HTMLScriptElement) => {
+      script.dataset.loadState = "loaded";
+      resolve();
+    };
+    const failScriptLoad = (script: HTMLScriptElement) => {
+      script.dataset.loadState = "failed";
+      script.remove();
+      turnstileScriptPromise = null;
+      reject(new Error("Turnstile script failed to load"));
+    };
+
     const existingScript = document.getElementById(turnstileScriptId);
     if (existingScript) {
-      existingScript.addEventListener("load", () => resolve(), { once: true });
-      existingScript.addEventListener(
-        "error",
-        () => reject(new Error("Turnstile script failed to load")),
-        { once: true },
-      );
+      const script = existingScript as HTMLScriptElement;
+      if (window.turnstile) {
+        resolve();
+        return;
+      }
+      if (existingScript.dataset.loadState === "loaded") {
+        failScriptLoad(script);
+        return;
+      }
+      if (existingScript.dataset.loadState === "failed") {
+        existingScript.remove();
+        turnstileScriptPromise = null;
+        loadTurnstileScript().then(resolve, reject);
+        return;
+      }
+
+      script.addEventListener("load", () => completeScriptLoad(script), {
+        once: true,
+      });
+      existingScript.addEventListener("error", () => failScriptLoad(script), {
+        once: true,
+      });
       return;
     }
 
@@ -89,12 +117,12 @@ function loadTurnstileScript(): Promise<void> {
     script.src = turnstileScriptSrc;
     script.async = true;
     script.defer = true;
-    script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener(
-      "error",
-      () => reject(new Error("Turnstile script failed to load")),
-      { once: true },
-    );
+    script.addEventListener("load", () => completeScriptLoad(script), {
+      once: true,
+    });
+    script.addEventListener("error", () => failScriptLoad(script), {
+      once: true,
+    });
     document.head.append(script);
   });
 
@@ -111,6 +139,7 @@ function HCaptchaWidget({
   ref,
 }: CaptchaWidgetProps) {
   const captchaRef = useRef<HCaptcha>(null);
+  const containerClassName = className ?? "";
   const [error, setError] = useState<string | null>(null);
   const siteKey = getRuntimeConfigValue(
     "hcaptchaSiteKey",
@@ -149,14 +178,14 @@ function HCaptchaWidget({
 
   if (!siteKey) {
     return (
-      <p className={`text-sm text-destructive ${className}`}>
+      <p className={`text-sm text-destructive ${containerClassName}`}>
         hCaptchaの設定が正しくありません。管理者にお問い合わせください。
       </p>
     );
   }
 
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={`space-y-2 ${containerClassName}`}>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <section
         className="flex items-center justify-center"
@@ -186,9 +215,9 @@ function TurnstileWidget({
   className,
   ref,
 }: CaptchaWidgetProps) {
-  const containerId = useId().replaceAll(":", "-");
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<TurnstileWidgetId | null>(null);
+  const containerClassName = className ?? "";
   const [error, setError] = useState<string | null>(null);
   const siteKey = getRuntimeConfigValue(
     "turnstileSiteKey",
@@ -261,20 +290,20 @@ function TurnstileWidget({
 
   if (!siteKey) {
     return (
-      <p className={`text-sm text-destructive ${className}`}>
+      <p className={`text-sm text-destructive ${containerClassName}`}>
         Turnstileの設定が正しくありません。管理者にお問い合わせください。
       </p>
     );
   }
 
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={`space-y-2 ${containerClassName}`}>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <section
         className="flex items-center justify-center"
         aria-label="セキュリティ確認"
       >
-        <div id={containerId} ref={containerRef} />
+        <div ref={containerRef} />
       </section>
     </div>
   );

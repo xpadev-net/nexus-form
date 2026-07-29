@@ -4,6 +4,7 @@ import {
   isHCaptchaBypassEnabled,
 } from "../form-security-bypass";
 import {
+  CaptchaVerificationError,
   verifyCaptchaToken,
   verifyHCaptcha,
   verifyHCaptchaToken,
@@ -311,6 +312,17 @@ describe("verifyCaptchaToken with Turnstile", () => {
     await expect(verifyCaptchaToken("token")).rejects.toThrow(
       "TURNSTILE_SECRET_KEY is not configured",
     );
+  });
+
+  it("preserves the Turnstile verification error type after retry exhaustion", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
+
+    await expect(
+      verifyCaptchaToken("token", { maxRetries: 0 }),
+    ).rejects.toThrow(CaptchaVerificationError);
+    await expect(
+      verifyCaptchaToken("token", { maxRetries: 0 }),
+    ).rejects.toThrow("Failed to verify Turnstile token after 1 attempts");
   });
 
   it("throws a configuration error for invalid CAPTCHA providers", async () => {

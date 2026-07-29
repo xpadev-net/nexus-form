@@ -123,9 +123,19 @@ function normalizeHostname(value: string | undefined): string | null {
 function collectExpectedHostnames(
   optionHostnames: string[] | undefined,
 ): Set<string> {
+  return collectProviderExpectedHostnames(
+    optionHostnames,
+    process.env.HCAPTCHA_EXPECTED_HOSTNAMES,
+  );
+}
+
+function collectProviderExpectedHostnames(
+  optionHostnames: string[] | undefined,
+  providerExpectedHostnames: string | undefined,
+): Set<string> {
   const candidates = [
     ...(optionHostnames ?? []),
-    ...(process.env.HCAPTCHA_EXPECTED_HOSTNAMES?.split(",") ?? []),
+    ...(providerExpectedHostnames?.split(",") ?? []),
     process.env.VITE_BASE_URL,
     ...(process.env.TRUSTED_ORIGINS?.split(",") ?? []),
   ];
@@ -140,17 +150,9 @@ function collectExpectedHostnames(
 function collectTurnstileExpectedHostnames(
   optionHostnames: string[] | undefined,
 ): Set<string> {
-  const candidates = [
-    ...(optionHostnames ?? []),
-    ...(process.env.TURNSTILE_EXPECTED_HOSTNAMES?.split(",") ?? []),
-    process.env.VITE_BASE_URL,
-    ...(process.env.TRUSTED_ORIGINS?.split(",") ?? []),
-  ];
-
-  return new Set(
-    candidates
-      .map((hostname) => normalizeHostname(hostname))
-      .filter((hostname): hostname is string => !!hostname),
+  return collectProviderExpectedHostnames(
+    optionHostnames,
+    process.env.TURNSTILE_EXPECTED_HOSTNAMES,
   );
 }
 
@@ -222,6 +224,8 @@ async function fetchWithRetry(
   maxRetries: number,
   timeout: number,
   failureLabel = "hCaptcha token",
+  createVerificationError: (message: string) => Error = (message) =>
+    new HCaptchaVerificationError(message),
 ): Promise<Response> {
   let lastError: Error | null = null;
 
@@ -249,7 +253,7 @@ async function fetchWithRetry(
     }
   }
 
-  throw new HCaptchaVerificationError(
+  throw createVerificationError(
     `Failed to verify ${failureLabel} after ${maxRetries + 1} attempts: ${lastError?.message}`,
   );
 }
@@ -453,6 +457,7 @@ export async function verifyTurnstileToken(
       maxRetries,
       timeout,
       "Turnstile token",
+      (message) => new CaptchaVerificationError(message),
     );
 
     if (!response.ok) {

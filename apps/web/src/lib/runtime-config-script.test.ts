@@ -36,11 +36,11 @@ describe("createRuntimeConfig", () => {
     expect(createRuntimeConfig({}).captchaProvider).toBe("");
   });
 
-  it("preserves an invalid captcha provider for explicit runtime error handling", () => {
+  it("normalizes an invalid captcha provider to the empty runtime fallback", () => {
     expect(
       createRuntimeConfig({ VITE_CAPTCHA_PROVIDER: "turnstyle" })
         .captchaProvider,
-    ).toBe("turnstyle");
+    ).toBe("");
   });
 });
 

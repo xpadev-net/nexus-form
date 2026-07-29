@@ -283,10 +283,13 @@ const securityBypassEnvVars = new Set([
   "VITE_DISABLE_HCAPTCHA",
 ]);
 
+// check-env.mjsはbuild前にも実行されるため、TypeScriptのshared moduleを直接importしません。
+// packages/shared/src/captcha.ts の CAPTCHA_PROVIDERS と同期してください。
 const allowedCaptchaProviders = new Set(["hcaptcha", "turnstile"]);
 
 function readCaptchaProvider(envName, fallback = "hcaptcha") {
-  return process.env[envName] || fallback;
+  const trimmedValue = process.env[envName]?.trim();
+  return trimmedValue || fallback;
 }
 
 function validateRequiredEnvVar(envVar, label) {
