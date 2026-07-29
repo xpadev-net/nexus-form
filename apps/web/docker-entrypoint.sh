@@ -88,7 +88,7 @@ append_connect_src_from_host_env() {
   csp_connect_src="$csp_connect_src $normalized_origin"
 }
 
-csp_connect_src="'self' https://hcaptcha.com https://*.hcaptcha.com"
+csp_connect_src="'self' https://hcaptcha.com https://*.hcaptcha.com https://challenges.cloudflare.com"
 append_connect_src_from_host_env "VITE_API_URL" "${VITE_API_URL:-}"
 append_connect_src_from_host_env "VITE_TELEMETRY_HOST" "${VITE_TELEMETRY_HOST:-}"
 append_connect_src_from_host_env "VITE_TELEMETRY_V4_HOST" "${VITE_TELEMETRY_V4_HOST:-}"
@@ -132,11 +132,13 @@ cat <<EOF > "$web_root/env-config.js"
 window.__NEXUS_FORM_CONFIG__ = {
   apiUrl: $(json_encode "${VITE_API_URL:-}"),
   baseUrl: $(json_encode "${VITE_BASE_URL:-}"),
+  captchaProvider: $(json_encode "${VITE_CAPTCHA_PROVIDER:-}"),
   formSecurityDevBypass: $(json_encode "${VITE_FORM_SECURITY_DEV_BYPASS:-}"),
   hcaptchaSiteKey: $(json_encode "${VITE_HCAPTCHA_SITE_KEY:-}"),
   telemetryHost: $(json_encode "${VITE_TELEMETRY_HOST:-}"),
   telemetryV4Host: $(json_encode "${VITE_TELEMETRY_V4_HOST:-}"),
   telemetryV6Host: $(json_encode "${VITE_TELEMETRY_V6_HOST:-}"),
+  turnstileSiteKey: $(json_encode "${VITE_TURNSTILE_SITE_KEY:-}"),
 };
 window.__BRAND_CONFIG__ = {
   appName: $(json_encode "${VITE_BRAND_APP_NAME:-}"),

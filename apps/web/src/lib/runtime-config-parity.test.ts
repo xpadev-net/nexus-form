@@ -21,11 +21,13 @@ const k8sWebDeploymentPath = join(repoRoot, "k8s/base/web-deployment.yaml");
 const runtimeConfigBackedBuildEnv = [
   "VITE_API_URL",
   "VITE_BASE_URL",
+  "VITE_CAPTCHA_PROVIDER",
   "VITE_FORM_SECURITY_DEV_BYPASS",
   "VITE_HCAPTCHA_SITE_KEY",
   "VITE_TELEMETRY_HOST",
   "VITE_TELEMETRY_V4_HOST",
   "VITE_TELEMETRY_V6_HOST",
+  "VITE_TURNSTILE_SITE_KEY",
 ] as const;
 
 const runtimeBrandBuildEnv = [
@@ -54,11 +56,13 @@ const webBuildTimeEnv = [
 const runtimeEnv = {
   VITE_API_URL: "https://api.runtime.example",
   VITE_BASE_URL: "https://frontend.runtime.example/app",
+  VITE_CAPTCHA_PROVIDER: "turnstile",
   VITE_FORM_SECURITY_DEV_BYPASS: "false",
   VITE_HCAPTCHA_SITE_KEY: "10000000-ffff-ffff-ffff-000000000001",
   VITE_TELEMETRY_HOST: "telemetry.runtime.example",
   VITE_TELEMETRY_V4_HOST: "ipv4.runtime.example",
   VITE_TELEMETRY_V6_HOST: "ipv6.runtime.example",
+  VITE_TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
 };
 
 type WindowShim = {

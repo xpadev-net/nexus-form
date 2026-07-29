@@ -9,11 +9,12 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
-const checkEnvScript = fileURLToPath(new URL("check-env.mjs", import.meta.url));
+const checkEnvScript = join(rootDir, "scripts/check-env.mjs");
 
 const requiredEnv = {
   API_BASE_URL: "http://localhost:3001",
   AUTH_SECRET: "test-auth-secret",
+  CAPTCHA_PROVIDER: "hcaptcha",
   DATABASE_URL: "mysql://user:password@localhost:3306/nexus_form",
   DISCORD_BOT_TOKEN: "discord-bot-token",
   DISCORD_CLIENT_ID: "discord-client-id",
@@ -36,6 +37,7 @@ const requiredEnv = {
   TWITTER_BEARER_TOKEN: "twitter-bearer-token",
   VITE_API_URL: "http://localhost:3001",
   VITE_BASE_URL: "http://localhost:3000",
+  VITE_CAPTCHA_PROVIDER: "hcaptcha",
   VITE_HCAPTCHA_SITE_KEY: "hcaptcha-site-key",
 };
 
@@ -57,7 +59,7 @@ function createEnvFixture(values) {
 function runCheckEnv(envPath) {
   return spawnSync(
     process.execPath,
-    ["--", checkEnvScript, "--env-file", envPath],
+    [checkEnvScript, "--", "--env-file", envPath],
     {
       cwd: rootDir,
       encoding: "utf8",
@@ -111,6 +113,49 @@ test("check-env preserves escaped backslash sequences in double-quoted values", 
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /ユーザー: user%5Cnname/);
+  } finally {
+    fixture.remove();
+  }
+});
+
+test("check-env succeeds with Turnstile when provider env values match", () => {
+  const fixture = createEnvFixture({
+    ...requiredEnv,
+    CAPTCHA_PROVIDER: "turnstile",
+    HCAPTCHA_SECRET_KEY: "",
+    TURNSTILE_SECRET_KEY: "turnstile-secret-key",
+    VITE_CAPTCHA_PROVIDER: "turnstile",
+    VITE_HCAPTCHA_SITE_KEY: "",
+    VITE_TURNSTILE_SITE_KEY: "turnstile-site-key",
+  });
+
+  try {
+    const result = runCheckEnv(fixture.envPath);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /CAPTCHA_PROVIDER: turnstile/);
+    assert.match(result.stdout, /TURNSTILE_SECRET_KEY: 設定済み/);
+  } finally {
+    fixture.remove();
+  }
+});
+
+test("check-env fails when frontend and backend CAPTCHA providers differ", () => {
+  const fixture = createEnvFixture({
+    ...requiredEnv,
+    CAPTCHA_PROVIDER: "turnstile",
+    TURNSTILE_SECRET_KEY: "turnstile-secret-key",
+    VITE_CAPTCHA_PROVIDER: "hcaptcha",
+  });
+
+  try {
+    const result = runCheckEnv(fixture.envPath);
+
+    assert.equal(result.status, 1);
+    assert.match(
+      result.stdout,
+      /CAPTCHA_PROVIDER と VITE_CAPTCHA_PROVIDER が一致していません/,
+    );
   } finally {
     fixture.remove();
   }

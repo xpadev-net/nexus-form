@@ -13,11 +13,13 @@ describe("getRuntimeConfigValue", () => {
       __NEXUS_FORM_CONFIG__: {
         apiUrl: "https://api.runtime.example",
         baseUrl: "https://app.runtime.example",
+        captchaProvider: "turnstile",
         formSecurityDevBypass: "true",
         hcaptchaSiteKey: "10000000-ffff-ffff-ffff-000000000001",
         telemetryHost: "telemetry.runtime.example",
         telemetryV4Host: "ipv4.runtime.example",
         telemetryV6Host: "ipv6.runtime.example",
+        turnstileSiteKey: "1x00000000000000000000AA",
       },
     });
 
@@ -38,6 +40,9 @@ describe("getRuntimeConfigValue", () => {
     expect(getRuntimeConfigValue("formSecurityDevBypass", "false")).toBe(
       "true",
     );
+    expect(getRuntimeConfigValue("captchaProvider", "hcaptcha")).toBe(
+      "turnstile",
+    );
     expect(
       getRuntimeConfigValue(
         "hcaptchaSiteKey",
@@ -53,6 +58,9 @@ describe("getRuntimeConfigValue", () => {
     expect(getRuntimeConfigValue("telemetryV6Host", "ipv6.build.example")).toBe(
       "ipv6.runtime.example",
     );
+    expect(
+      getRuntimeConfigValue("turnstileSiteKey", "1x00000000000000000000BB"),
+    ).toBe("1x00000000000000000000AA");
   });
 
   it("falls back to build-time values and defaults when runtime values are empty", () => {
@@ -71,6 +79,9 @@ describe("getRuntimeConfigValue", () => {
     ).toBe("https://api.build.example");
 
     expect(getRuntimeConfigValue("hcaptchaSiteKey", "", "fallback")).toBe(
+      "fallback",
+    );
+    expect(getRuntimeConfigValue("turnstileSiteKey", "", "fallback")).toBe(
       "fallback",
     );
     expect(

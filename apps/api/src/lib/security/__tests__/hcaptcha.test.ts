@@ -3,7 +3,11 @@ import {
   isFormSecurityBypassEnabled,
   isHCaptchaBypassEnabled,
 } from "../form-security-bypass";
-import { verifyHCaptchaToken } from "../hcaptcha";
+import {
+  verifyCaptchaToken,
+  verifyHCaptcha,
+  verifyHCaptchaToken,
+} from "../hcaptcha";
 
 const now = new Date("2026-05-19T00:00:00.000Z");
 
@@ -227,5 +231,92 @@ describe("verifyHCaptchaToken", () => {
       success: false,
       errorMessage: "hCaptcha expected hostname is not configured",
     });
+  });
+});
+
+describe("verifyCaptchaToken with Turnstile", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    vi.stubEnv("CAPTCHA_PROVIDER", "turnstile");
+    vi.stubEnv("TURNSTILE_SECRET_KEY", "turnstile-secret");
+    vi.stubEnv("VITE_BASE_URL", "https://forms.example.com");
+  });
+
+  it("verifies a Turnstile token against Cloudflare siteverify", async () => {
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "forms.example.com",
+      challenge_ts: new Date(now.getTime() - 30_000).toISOString(),
+    });
+
+    await expect(
+      verifyCaptchaToken("token", { remoteip: "203.0.113.10" }),
+    ).resolves.toMatchObject({
+      success: true,
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("secret=turnstile-secret"),
+      }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.stringContaining("remoteip=203.0.113.10"),
+      }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: expect.stringContaining("idempotency_key="),
+      }),
+    );
+  });
+
+  it("rejects a Turnstile token issued for a different hostname", async () => {
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "attacker.example.com",
+      challenge_ts: new Date(now.getTime() - 30_000).toISOString(),
+    });
+
+    await expect(verifyCaptchaToken("token")).resolves.toMatchObject({
+      success: false,
+      errorMessage: "Turnstile hostname mismatch",
+    });
+  });
+
+  it("rejects a stale Turnstile challenge after five minutes", async () => {
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "forms.example.com",
+      challenge_ts: new Date(now.getTime() - 301_000).toISOString(),
+    });
+
+    await expect(verifyCaptchaToken("token")).resolves.toMatchObject({
+      success: false,
+      errorMessage: "Turnstile challenge timestamp is too old",
+    });
+  });
+
+  it("fails closed when Turnstile secret is missing", async () => {
+    vi.stubEnv("TURNSTILE_SECRET_KEY", "");
+
+    await expect(verifyCaptchaToken("token")).rejects.toThrow(
+      "TURNSTILE_SECRET_KEY is not configured",
+    );
+  });
+
+  it("throws a configuration error for invalid CAPTCHA providers", async () => {
+    vi.stubEnv("CAPTCHA_PROVIDER", "turnstyle");
+
+    await expect(verifyCaptchaToken("token")).rejects.toThrow();
+    await expect(verifyHCaptcha("token")).rejects.toThrow();
   });
 });

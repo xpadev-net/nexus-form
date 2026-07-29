@@ -95,12 +95,14 @@ docker push your-registry/nexus-form-worker:latest
 **主なVITE_*環境変数**:
 - `VITE_API_URL`: ブラウザから到達可能な公開API URL（例: `https://api.example.com`、同一オリジンでリバースプロキシする場合は `https://example.com`）
 - `VITE_BASE_URL`: ブラウザから到達可能な公開Web URL（例: `https://example.com`）
+- `VITE_CAPTCHA_PROVIDER`: 使用するCAPTCHA provider（`hcaptcha` または `turnstile`）。API側の `CAPTCHA_PROVIDER` と同じ値にしてください。
 - `VITE_HCAPTCHA_SITE_KEY`: hCaptchaのサイトキー（公開キー）。hCaptchaウィジェットを使用する場合は必須です。
+- `VITE_TURNSTILE_SITE_KEY`: Cloudflare Turnstileのサイトキー（公開キー）。Turnstileウィジェットを使用する場合は必須です。
 - `VITE_TELEMETRY_HOST`: 共通テレメトリーhost。v4専用host未設定時のv4 endpointとして使用されます。
 - `VITE_TELEMETRY_V4_HOST`: IPv4テレメトリーhost
 - `VITE_TELEMETRY_V6_HOST`: IPv6テレメトリーhost
 
-**注意**: `VITE_HCAPTCHA_SITE_KEY`が設定されていない場合、hCaptchaウィジェットが正常に動作せず、フォーム送信がブロックされる可能性があります。
+**注意**: providerに対応するサイトキーが設定されていない場合、CAPTCHAウィジェットが正常に動作せず、フォーム送信がブロックされる可能性があります。
 `VITE_API_URL`には `http://api:3001` のような Kubernetes ClusterIP Service の内部DNS名を設定しないでください。Web コンテナ内ではなく、エンドユーザーのブラウザで使用されます。
 
 ConfigMapを変更しただけでは、既存のWeb Pod内に生成済みの `/env-config.js` は更新されません。ConfigMap適用後はWeb Podを再起動し、生成内容を確認してください。
@@ -156,7 +158,7 @@ openssl rand -base64 32
 **機密情報として管理すべき項目**:
 - データベース: `DATABASE_URL` - MySQL接続文字列（パスワードを含む）
 - 認証関連: `AUTH_SECRET`, `CSRF_SECRET`, `SESSION_ALIAS_SALT`, `SESSION_IP_SALT`, `GOOGLE_OAUTH_ENC_KEY`, `SIGNUP_INVITATION_CODE`
-- hCaptcha: `HCAPTCHA_SECRET_KEY` - hCaptcha検証用のシークレットキー（必須、hCaptchaを使用する場合）
+- CAPTCHA: `HCAPTCHA_SECRET_KEY`, `TURNSTILE_SECRET_KEY` - providerに対応する検証用シークレットキー
 - Discord: `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
 - GitHub: `GITHUB_PRIVATE_KEY`, `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`
 - S3: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
@@ -1090,17 +1092,21 @@ REDIS_URL=redis://host:port
 
 フロントエンドで使用される公開環境変数です。Web コンテナ起動時に `/env-config.js` へ書き出され、ブラウザで読み込まれます。
 
-#### VITE_HCAPTCHA_SITE_KEY（必須）
+#### CAPTCHA provider とサイトキー（必須）
 
-hCaptchaのサイトキー（公開キー）を設定します。hCaptchaウィジェットを使用する場合は必須です。
+使用するCAPTCHA providerと対応するサイトキー（公開キー）を設定します。`VITE_CAPTCHA_PROVIDER` はAPI側の `CAPTCHA_PROVIDER` と同じ値にしてください。
 
 ```
+VITE_CAPTCHA_PROVIDER=hcaptcha
 VITE_HCAPTCHA_SITE_KEY=your-hcaptcha-site-key
+# Turnstileを使用する場合:
+# VITE_CAPTCHA_PROVIDER=turnstile
+# VITE_TURNSTILE_SITE_KEY=your-turnstile-site-key
 ```
 
-**注意**: この値が設定されていない場合、hCaptchaウィジェットが正常に動作せず、フォーム送信がブロックされる可能性があります。
+**注意**: providerに対応するサイトキーが設定されていない場合、CAPTCHAウィジェットが正常に動作せず、フォーム送信がブロックされる可能性があります。
 
-**関連**: hCaptchaを使用する場合は、Secretに`HCAPTCHA_SECRET_KEY`も設定する必要があります。`HCAPTCHA_SECRET_KEY`が未設定の場合、hCaptcha検証時に500エラーが発生します。
+**関連**: Secretにはproviderに対応する `HCAPTCHA_SECRET_KEY` または `TURNSTILE_SECRET_KEY` も設定する必要があります。未設定の場合、CAPTCHA検証時に500エラーが発生します。
 
 #### VITE_FORM_SECURITY_DEV_BYPASS（開発環境のみ）
 

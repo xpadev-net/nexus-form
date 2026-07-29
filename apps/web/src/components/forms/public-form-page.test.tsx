@@ -430,8 +430,8 @@ vi.mock("@/components/forms/form-not-found-page", () => ({
   ),
 }));
 
-vi.mock("@/components/forms/hcaptcha-widget", () => ({
-  HCaptchaWidget: ({
+vi.mock("@/components/forms/captcha-widget", () => ({
+  CaptchaWidget: ({
     onExpire,
     onVerify,
     ref,
@@ -443,7 +443,7 @@ vi.mock("@/components/forms/hcaptcha-widget", () => ({
     hCaptchaMockState.onExpire = onExpire;
     hCaptchaMockState.onVerify = onVerify;
     useImperativeHandle(ref, () => ({ reset: hCaptchaMockState.reset }), []);
-    return <div data-testid="hcaptcha-widget" />;
+    return <div data-testid="captcha-widget" />;
   },
 }));
 
@@ -1133,7 +1133,7 @@ describe("PublicFormPage", () => {
     );
     expect(formBody?.getAttribute("data-captcha-ready")).toBe("true");
     expect(
-      container.querySelector("[data-testid='hcaptcha-widget']"),
+      container.querySelector("[data-testid='captcha-widget']"),
     ).toBeNull();
 
     await act(async () => {
@@ -1551,7 +1551,7 @@ describe("PublicFormPage", () => {
 
     expect(apiMocks.submitPost).toHaveBeenCalledTimes(1);
     expect(container.textContent).toContain(
-      "セキュリティ確認が完了していません。hCaptchaを完了してください。",
+      "セキュリティ確認が完了していません。CAPTCHAを完了してください。",
     );
     expect(hCaptchaMockState.reset).toHaveBeenCalledTimes(2);
 
@@ -1843,7 +1843,7 @@ describe("PublicFormPage", () => {
     );
     expect(formBody?.getAttribute("data-captcha-ready")).toBe("true");
     expect(
-      container.querySelector("[data-testid='hcaptcha-widget']"),
+      container.querySelector("[data-testid='captcha-widget']"),
     ).toBeNull();
 
     await act(async () => {
