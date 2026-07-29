@@ -1,10 +1,15 @@
 import {
   addJobWithCleanup,
+  buildResponseLinkAnalysisJobId,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
+  getResponseLinkAnalysisDirtyKey,
+  RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+  RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
   RESPONSE_LINK_ANALYSIS_QUEUE,
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
 import { type DefaultJobOptions, Queue } from "bullmq";
+import Redis from "ioredis";
 import { getRedisConnection } from "./redis";
 
 const JOB_RETENTION_DEFAULTS = {
@@ -52,14 +57,13 @@ const RESPONSE_LINK_ANALYSIS_JOB_DEFAULTS: DefaultJobOptions = {
   },
 };
 
-const RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS = 10_000;
-
 export const SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS =
   STANDARD_QUEUE_RETRY_JOB_OPTIONS;
 
 let _sheetsSyncQueue: Queue | null = null;
 let _formSubmitNotificationQueue: Queue | null = null;
 let _responseLinkAnalysisQueue: Queue | null = null;
+let _responseLinkAnalysisDirtyClient: Redis | null = null;
 
 const _validationQueues: Map<string, Queue> = new Map();
 
@@ -135,25 +139,61 @@ function isActiveJobState(state: unknown): boolean {
   return state === "active" || state === "waiting-children";
 }
 
-function responseLinkOverflowJobId(formId: string): string {
-  return `response-link-analysis.${formId}.overflow`;
+function getResponseLinkAnalysisDirtyClient(): Redis {
+  if (!_responseLinkAnalysisDirtyClient) {
+    _responseLinkAnalysisDirtyClient = new Redis(
+      getRedisConnection().connection,
+    );
+  }
+  return _responseLinkAnalysisDirtyClient;
 }
 
+async function markResponseLinkAnalysisDirty(formId: string): Promise<void> {
+  await getResponseLinkAnalysisDirtyClient().set(
+    getResponseLinkAnalysisDirtyKey(formId),
+    "1",
+    "EX",
+    RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
+  );
+}
+
+/**
+ * Enqueues shadow response-link analysis for a form.
+ *
+ * Mutations normally coalesce into a stable primary job. If that job is already
+ * active, one stable follow-up is scheduled; if primary and follow-up are both
+ * active, one stable overflow is scheduled. When all three slots are already
+ * active, the mutation is recorded as a dirty marker so the worker schedules a
+ * fresh follow-up after the current analysis releases the form lock.
+ */
 export async function enqueueResponseLinkAnalysisJob(params: {
   formId: string;
   reason: "response-submitted" | "response-deleted" | "manual";
 }): Promise<void> {
   const jobData = responseLinkAnalysisJobDataSchema.parse(params);
   const queue = getResponseLinkAnalysisQueue();
-  const primaryJobId = `response-link-analysis.${params.formId}`;
-  const followUpJobId = `${primaryJobId}.follow-up`;
+  const primaryJobId = buildResponseLinkAnalysisJobId(params.formId);
+  const followUpJobId = buildResponseLinkAnalysisJobId(
+    params.formId,
+    "follow-up",
+  );
+  const overflowJobId = buildResponseLinkAnalysisJobId(
+    params.formId,
+    "overflow",
+  );
   const primaryJob = await queue.getJob(primaryJobId);
   const primaryState = await primaryJob?.getState();
   const followUpJob = await queue.getJob(followUpJobId);
   const followUpState = await followUpJob?.getState();
   let jobId = primaryJobId;
   if (isActiveJobState(primaryState) && isActiveJobState(followUpState)) {
-    jobId = responseLinkOverflowJobId(params.formId);
+    const overflowJob = await queue.getJob(overflowJobId);
+    const overflowState = await overflowJob?.getState();
+    if (isActiveJobState(overflowState)) {
+      await markResponseLinkAnalysisDirty(params.formId);
+      return;
+    }
+    jobId = overflowJobId;
   } else if (isActiveJobState(followUpState)) {
     jobId = primaryJobId;
   } else if (
@@ -180,7 +220,7 @@ export async function enqueueResponseLinkAnalysisJob(params: {
     await addJobWithCleanup(queue, {
       delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
       jobData,
-      jobId: responseLinkOverflowJobId(params.formId),
+      jobId: overflowJobId,
       jobName: params.reason,
     });
   }
@@ -200,5 +240,7 @@ export async function closeQueues(): Promise<void> {
     _sheetsSyncQueue = null;
     _formSubmitNotificationQueue = null;
     _responseLinkAnalysisQueue = null;
+    _responseLinkAnalysisDirtyClient?.disconnect();
+    _responseLinkAnalysisDirtyClient = null;
   }
 }

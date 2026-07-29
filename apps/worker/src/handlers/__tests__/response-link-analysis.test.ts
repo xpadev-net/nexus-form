@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   txInsert: vi.fn(),
   txUpdate: vi.fn(),
   txInsertedRows: [] as Array<{ table: unknown; values: unknown }>,
+  queueAdd: vi.fn(async () => undefined),
+  queueGetJob: vi.fn(async () => null),
+  redisDel: vi.fn(async () => 0),
   staleRunRows: [] as Array<{ id: string }>,
   responseRows: [] as Array<{
     id: string;
@@ -27,6 +30,28 @@ const mocks = vi.hoisted(() => ({
     componentValue: string | null;
     componentValueHash: string;
   }>,
+}));
+
+vi.mock("bullmq", () => ({
+  Queue: vi.fn(function queueMock() {
+    return {
+      add: mocks.queueAdd,
+      getJob: mocks.queueGetJob,
+    };
+  }),
+}));
+
+vi.mock("ioredis", () => ({
+  default: vi.fn(function redisMock() {
+    return {
+      del: mocks.redisDel,
+    };
+  }),
+}));
+
+vi.mock("../lib/redis", () => ({
+  getPublisherConnectionOptions: vi.fn(() => ({ id: "publisher-redis" })),
+  redisConnection: { id: "worker-redis" },
 }));
 
 vi.mock("@nexus-form/database", () => ({
@@ -168,6 +193,10 @@ beforeEach(() => {
   mocks.dbDeletedTables = [];
   mocks.dbUpdatedTables = [];
   mocks.txInsertedRows = [];
+  mocks.queueAdd.mockClear();
+  mocks.queueGetJob.mockClear();
+  mocks.redisDel.mockReset();
+  mocks.redisDel.mockResolvedValue(0);
   setupDbMocks();
 });
 
@@ -268,7 +297,7 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("marks the run as FAILED when the candidate cap is exceeded", async () => {
+  it("completes a degraded run when the candidate cap is exceeded", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
@@ -276,20 +305,24 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    await expect(
-      analyzeResponseLinks("form-1", {
-        maxCandidatePairs: 10,
-      }),
-    ).rejects.toThrow("candidate pair limit exceeded");
+    const result = await analyzeResponseLinks("form-1", {
+      maxCandidatePairs: 10,
+    });
 
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(0);
     const pairInsert = mocks.txInsertedRows.find(
       (entry) => entry.table === "responsePairLink",
     );
     expect(pairInsert).toBeUndefined();
-    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: "FAILED",
+        metadataJson: expect.objectContaining({
+          candidatePairLimitExceeded: true,
+          skippedCandidateBucketCount: 1,
+        }),
+        status: "COMPLETED",
       }),
     );
   });
@@ -341,6 +374,28 @@ describe("handleResponseLinkAnalysis", () => {
       expect.objectContaining({ id: "responseLinkAnalysisRun.id" }),
       expect.objectContaining({ formId: "responseLinkAnalysisLock.formId" }),
     ]);
+  });
+
+  it("queues a fixed follow-up after consuming a dirty response-link marker", async () => {
+    mocks.redisDel.mockResolvedValueOnce(1);
+
+    const result = await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    expect(result.linkCount).toBe(0);
+    expect(mocks.redisDel).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+    );
+    expect(mocks.queueAdd).toHaveBeenCalledWith(
+      "response-submitted",
+      { formId: "form-1", reason: "response-submitted" },
+      {
+        delay: 10_000,
+        jobId: "response-link-analysis.form-1.follow-up",
+      },
+    );
   });
 
   it("refreshes the form lock heartbeat while analysis is running", async () => {

@@ -3,7 +3,7 @@ import type {
   ResponseSuspicionGroupsResponse,
 } from "@nexus-form/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Link2, Loader2, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -178,6 +178,15 @@ export function ResponseSuspicionGroups({
           再計算
         </Button>
       </div>
+      {run?.candidatePairLimitExceeded && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            候補数が上限に達したため、一部の候補バケットを除外した縮退結果です。除外バケット数:{" "}
+            {run.skippedCandidateBucketCount}
+          </p>
+        </div>
+      )}
 
       {groups.length === 0 ? (
         <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">

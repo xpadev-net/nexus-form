@@ -13,6 +13,12 @@ export default defineConfig({
           ),
         ),
       },
+      {
+        find: /^@nexus-form\/shared$/,
+        replacement: fileURLToPath(
+          new URL("../../packages/shared/src/index.ts", import.meta.url),
+        ),
+      },
     ],
   },
   test: {

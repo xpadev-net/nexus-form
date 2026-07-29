@@ -48,7 +48,8 @@ export type ResponseSuspicionGroupListItem = z.infer<
 /**
  * Paginated list response for the latest completed response-link shadow run.
  * groups contains at most the API page size, and hasNext indicates that more
- * groups exist in persisted analysis data.
+ * groups exist in persisted analysis data. candidatePairLimitExceeded means
+ * the run completed in degraded mode after skipping candidate buckets.
  */
 export const ResponseSuspicionGroupsResponseSchema = z.object({
   run: z
@@ -58,6 +59,8 @@ export const ResponseSuspicionGroupsResponseSchema = z.object({
       statsVersion: z.string().nullable(),
       populationSize: z.number().int(),
       completedAt: z.string().nullable(),
+      candidatePairLimitExceeded: z.boolean(),
+      skippedCandidateBucketCount: z.number().int().nonnegative(),
     })
     .nullable(),
   groups: z.array(ResponseSuspicionGroupListItemSchema),

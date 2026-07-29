@@ -10,9 +10,14 @@ import {
   responseSuspicionGroupMember,
 } from "@nexus-form/database";
 import {
+  addJobWithCleanup,
   buildRarityStats,
+  buildResponseLinkAnalysisJobId,
   buildResponseSuspicionGroups,
   evaluateResponsePairLink,
+  getResponseLinkAnalysisDirtyKey,
+  RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
   RESPONSE_LINK_MODEL_VERSION,
   type ResponseLinkAnalysisJobData,
   type ResponseLinkAnalysisResponse,
@@ -20,8 +25,10 @@ import {
   type ResponsePairLinkEvaluation,
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
-import type { Job } from "bullmq";
+import { type Job, Queue } from "bullmq";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import Redis from "ioredis";
+import { getPublisherConnectionOptions, redisConnection } from "../lib/redis";
 
 const CANDIDATE_BUCKET_LIMIT = 200;
 const DEFAULT_ANALYSIS_RESPONSE_LIMIT = 5000;
@@ -50,19 +57,13 @@ type ResponseRow = {
   userAgent: string | null;
 };
 
+let responseLinkAnalysisQueue: Queue<ResponseLinkAnalysisJobData> | null = null;
+let responseLinkAnalysisDirtyClient: Redis | null = null;
+
 function isDuplicateKeyError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const record = error as Record<string, unknown>;
   return record.code === "ER_DUP_ENTRY" || record.errno === 1062;
-}
-
-class CandidatePairLimitExceededError extends Error {
-  constructor(limit: number) {
-    super(
-      `Response link analysis candidate pair limit exceeded before a complete shadow result could be produced: ${limit}`,
-    );
-    this.name = "CandidatePairLimitExceededError";
-  }
 }
 
 function affectedRows(result: unknown): number | null {
@@ -82,6 +83,39 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
+  });
+}
+
+function getResponseLinkAnalysisQueue(): Queue<ResponseLinkAnalysisJobData> {
+  responseLinkAnalysisQueue ??= new Queue<ResponseLinkAnalysisJobData>(
+    RESPONSE_LINK_ANALYSIS_QUEUE,
+    { connection: redisConnection },
+  );
+  return responseLinkAnalysisQueue;
+}
+
+function getResponseLinkAnalysisDirtyClient(): Redis {
+  responseLinkAnalysisDirtyClient ??= new Redis(
+    getPublisherConnectionOptions(),
+  );
+  return responseLinkAnalysisDirtyClient;
+}
+
+async function consumeResponseLinkAnalysisDirty(
+  formId: string,
+): Promise<boolean> {
+  const deleted = await getResponseLinkAnalysisDirtyClient().del(
+    getResponseLinkAnalysisDirtyKey(formId),
+  );
+  return deleted > 0;
+}
+
+async function enqueueDirtyResponseLinkFollowUp(formId: string): Promise<void> {
+  await addJobWithCleanup(getResponseLinkAnalysisQueue(), {
+    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+    jobData: { formId, reason: "response-submitted" },
+    jobId: buildResponseLinkAnalysisJobId(formId, "follow-up"),
+    jobName: "response-submitted",
   });
 }
 
@@ -215,14 +249,15 @@ function addBucketPairs(
   if (options.bucketLimit !== undefined && ids.length > options.bucketLimit) {
     return { skippedBucketCount: 1, truncated: false };
   }
+  const pairCount = (ids.length * (ids.length - 1)) / 2;
+  if (candidatePairs.size + pairCount > options.maxCandidatePairs) {
+    return { skippedBucketCount: 1, truncated: true };
+  }
   for (let i = 0; i < ids.length; i += 1) {
     for (let j = i + 1; j < ids.length; j += 1) {
       const left = ids[i];
       const right = ids[j];
       if (!left || !right) continue;
-      if (candidatePairs.size >= options.maxCandidatePairs) {
-        return { skippedBucketCount: 0, truncated: true };
-      }
       candidatePairs.add(pairKey(left, right));
     }
   }
@@ -320,7 +355,6 @@ function buildCandidatePairs(
       });
       skippedBucketCount += result.skippedBucketCount;
       truncated = result.truncated || truncated;
-      if (truncated) return { candidatePairs, skippedBucketCount, truncated };
     }
   }
 
@@ -332,7 +366,6 @@ function buildCandidatePairs(
       });
       skippedBucketCount += result.skippedBucketCount;
       truncated = result.truncated || truncated;
-      if (truncated) return { candidatePairs, skippedBucketCount, truncated };
     }
   }
 
@@ -416,6 +449,7 @@ async function persistResults(params: {
   links: ResponsePairLinkEvaluation[];
   groups: ReturnType<typeof buildResponseSuspicionGroups>;
   metadataJson: Record<string, unknown>;
+  signal?: AbortSignal;
   statsVersion: string;
   populationSize: number;
 }): Promise<void> {
@@ -426,10 +460,12 @@ async function persistResults(params: {
     metadataJson,
     populationSize,
     runId,
+    signal,
     statsVersion,
   } = params;
 
   await db.transaction(async (tx) => {
+    throwIfAborted(signal);
     const linksByResponseId = new Map<string, ResponsePairLinkEvaluation[]>();
     for (const link of links) {
       pushLinkValue(linksByResponseId, link.responseIdA, link);
@@ -466,11 +502,13 @@ async function persistResults(params: {
         },
       }));
       for (const chunk of chunks(rows, INSERT_CHUNK_SIZE)) {
+        throwIfAborted(signal);
         await tx.insert(responsePairLink).values(chunk);
       }
     }
 
     for (const group of groups) {
+      throwIfAborted(signal);
       const groupId = stableId("response-suspicion-group", [
         runId,
         group.groupKey,
@@ -514,11 +552,13 @@ async function persistResults(params: {
       });
       if (memberRows.length > 0) {
         for (const chunk of chunks(memberRows, INSERT_CHUNK_SIZE)) {
+          throwIfAborted(signal);
           await tx.insert(responseSuspicionGroupMember).values(chunk);
         }
       }
     }
 
+    throwIfAborted(signal);
     await tx
       .update(responseLinkAnalysisRun)
       .set({
@@ -538,6 +578,13 @@ async function persistResults(params: {
   });
 }
 
+/**
+ * Builds and persists response-link shadow results for one form.
+ *
+ * Candidate generation is capped by `maxCandidatePairs`. Buckets that would
+ * exceed the cap are skipped as a degraded completed run and reported in
+ * metadata; unexpected errors or abort signals mark the run as failed.
+ */
 export async function analyzeResponseLinks(
   formId: string,
   options: { maxCandidatePairs?: number; signal?: AbortSignal } = {},
@@ -572,9 +619,6 @@ export async function analyzeResponseLinks(
       options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
     const { candidatePairs, skippedBucketCount, truncated } =
       buildCandidatePairs(responses, maxCandidatePairs);
-    if (truncated) {
-      throw new CandidatePairLimitExceededError(maxCandidatePairs);
-    }
     const links: ResponsePairLinkEvaluation[] = [];
 
     let processedCandidatePairCount = 0;
@@ -600,12 +644,14 @@ export async function analyzeResponseLinks(
       links,
       groups,
       metadataJson: {
+        candidatePairLimitExceeded: truncated,
         candidatePairCount: candidatePairs.size,
         candidatePairLimit: maxCandidatePairs,
         responsePopulationLimit: DEFAULT_ANALYSIS_RESPONSE_LIMIT,
         responsePopulationTruncated,
         skippedCandidateBucketCount: skippedBucketCount,
       },
+      signal: options.signal,
       statsVersion: stats.statsVersion,
       populationSize: stats.populationSize,
     });
@@ -628,12 +674,20 @@ export async function analyzeResponseLinks(
   }
 }
 
+/**
+ * BullMQ handler for response-link shadow analysis.
+ *
+ * The handler serializes work per form with a database lock, purges old stale
+ * runs before analysis, and lets failures propagate so BullMQ retry policy can
+ * run. If API enqueueing marked the form dirty while all stable job slots were
+ * already active, a fixed follow-up job is scheduled after the lock is released.
+ */
 export async function handleResponseLinkAnalysis(
   job: Job<ResponseLinkAnalysisJobData>,
 ): Promise<{ runId: string; linkCount: number; groupCount: number }> {
   const data = responseLinkAnalysisJobDataSchema.parse(job.data);
 
-  return withFormAnalysisLock(
+  const result = await withFormAnalysisLock(
     data.formId,
     job.id ?? stableId("job", [data.formId]),
     async (signal) => {
@@ -685,4 +739,8 @@ export async function handleResponseLinkAnalysis(
       return analyzeResponseLinks(data.formId, { signal });
     },
   );
+  if (await consumeResponseLinkAnalysisDirty(data.formId)) {
+    await enqueueDirtyResponseLinkFollowUp(data.formId);
+  }
+  return result;
 }

@@ -13,10 +13,12 @@ export interface QueueJobHandleLike {
 
 function isJobNotInStateError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const code =
-    "code" in error && typeof error.code === "string" ? error.code : undefined;
+  const code = Object.hasOwn(error, "code")
+    ? (error as Error & { code?: unknown }).code
+    : undefined;
   return (
     code === "JOB_NOT_IN_STATE" ||
+    code === -3 ||
     error.name === "JobNotInState" ||
     error.message.includes("not in the delayed state") ||
     error.message.includes("not in the expected state")

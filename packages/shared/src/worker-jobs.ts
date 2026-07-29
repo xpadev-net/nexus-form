@@ -7,6 +7,10 @@ export const VALIDATION_REVALIDATION_JOB_PREFIX = "validation-revalidation-";
 export const SHEETS_SYNC_AUTO_JOB_PREFIX = "sheets-auto.";
 export const SHEETS_SYNC_MANUAL_JOB_PREFIX = "sheets-manual.";
 export const RESPONSE_LINK_ANALYSIS_QUEUE = "response-link-analysis";
+export const RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS = 10_000;
+export const RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS = 24 * 60 * 60;
+
+export type ResponseLinkAnalysisJobSlot = "primary" | "follow-up" | "overflow";
 
 /**
  * Maps validation result ids (e.g. `validation-result:<hash>`) to a BullMQ-safe segment.
@@ -75,6 +79,18 @@ export function buildManualSheetsSyncJobId(
   responseId: string,
 ): string {
   return `${SHEETS_SYNC_MANUAL_JOB_PREFIX}${encodeSheetsSyncJobIdSegment(integrationId)}.${encodeSheetsSyncJobIdSegment(responseId)}`;
+}
+
+export function buildResponseLinkAnalysisJobId(
+  formId: string,
+  slot: ResponseLinkAnalysisJobSlot = "primary",
+): string {
+  const base = `response-link-analysis.${formId}`;
+  return slot === "primary" ? base : `${base}.${slot}`;
+}
+
+export function getResponseLinkAnalysisDirtyKey(formId: string): string {
+  return `response-link-analysis:dirty:${formId}`;
 }
 
 export const sheetsSyncModeSchema = z.enum(["incremental", "full"]);

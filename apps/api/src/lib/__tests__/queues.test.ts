@@ -44,11 +44,22 @@ const mocks = vi.hoisted(() => {
     Queue,
     queueInstances,
     getRedisConnection: vi.fn(() => ({ connection: { id: "redis" } })),
+    redisDisconnect: vi.fn(),
+    redisSet: vi.fn(async () => "OK"),
   };
 });
 
 vi.mock("bullmq", () => ({
   Queue: mocks.Queue,
+}));
+
+vi.mock("ioredis", () => ({
+  default: vi.fn(function redisMock() {
+    return {
+      disconnect: mocks.redisDisconnect,
+      set: mocks.redisSet,
+    };
+  }),
 }));
 
 vi.mock("../redis", () => ({
@@ -60,6 +71,8 @@ describe("queues", () => {
     await closeQueues();
     mocks.Queue.mockClear();
     mocks.getRedisConnection.mockClear();
+    mocks.redisDisconnect.mockClear();
+    mocks.redisSet.mockClear();
     mocks.queueInstances.length = 0;
   });
 
@@ -307,6 +320,37 @@ describe("queues", () => {
         delay: 10_000,
         jobId: "response-link-analysis.form-1.overflow",
       },
+    );
+  });
+
+  it("marks response-link analysis dirty when every stable analysis slot is active", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (
+        jobId === "response-link-analysis.form-1" ||
+        jobId === "response-link-analysis.form-1.follow-up" ||
+        jobId === "response-link-analysis.form-1.overflow"
+      ) {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(queue?.add).not.toHaveBeenCalled();
+    expect(mocks.redisSet).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+      "1",
+      "EX",
+      86_400,
     );
   });
 

@@ -503,6 +503,13 @@ const pairBreakdownSchema = z
   })
   .passthrough();
 
+const responseLinkRunMetadataSchema = z
+  .object({
+    candidatePairLimitExceeded: z.boolean().optional(),
+    skippedCandidateBucketCount: z.number().int().nonnegative().optional(),
+  })
+  .passthrough();
+
 function parseLinkSummary(value: unknown): {
   reasonCodes: string[];
   topFamilies: Array<{ family: string; score: number; reasonCodes: string[] }>;
@@ -516,6 +523,26 @@ function parseLinkSummary(value: unknown): {
   return {
     reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
     topFamilies: parsed.success ? (parsed.data.topFamilies ?? []) : [],
+  };
+}
+
+function parseResponseLinkRunMetadata(value: unknown): {
+  candidatePairLimitExceeded: boolean;
+  skippedCandidateBucketCount: number;
+} {
+  const parsed = responseLinkRunMetadataSchema.safeParse(value);
+  if (!parsed.success) {
+    logWarn("Invalid response link analysis metadataJson", "forms-responses", {
+      issues: parsed.error.issues,
+    });
+  }
+  return {
+    candidatePairLimitExceeded: parsed.success
+      ? (parsed.data.candidatePairLimitExceeded ?? false)
+      : false,
+    skippedCandidateBucketCount: parsed.success
+      ? (parsed.data.skippedCandidateBucketCount ?? 0)
+      : 0,
   };
 }
 
@@ -547,6 +574,8 @@ type LatestCompletedResponseLinkRun = {
   statsVersion: string | null;
   populationSize: number;
   completedAt: Date | null;
+  candidatePairLimitExceeded: boolean;
+  skippedCandidateBucketCount: number;
 };
 
 async function getLatestCompletedResponseLinkRun(
@@ -559,6 +588,7 @@ async function getLatestCompletedResponseLinkRun(
       statsVersion: responseLinkAnalysisRun.statsVersion,
       populationSize: responseLinkAnalysisRun.populationSize,
       completedAt: responseLinkAnalysisRun.completedAt,
+      metadataJson: responseLinkAnalysisRun.metadataJson,
     })
     .from(responseLinkAnalysisRun)
     .where(
@@ -571,7 +601,11 @@ async function getLatestCompletedResponseLinkRun(
     .orderBy(desc(responseLinkAnalysisRun.completedAt))
     .limit(1);
 
-  return run ?? null;
+  if (!run) return null;
+  return {
+    ...run,
+    ...parseResponseLinkRunMetadata(run.metadataJson),
+  };
 }
 
 function decorateResponseRow<T extends { id: string }>(
