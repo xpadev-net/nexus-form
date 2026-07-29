@@ -243,6 +243,75 @@ describe("queues", () => {
     );
   });
 
+  it("adds a follow-up replacement when primary delayed changeDelay loses its state race", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    const changeDelay = vi.fn(async () => {
+      throw new Error("Job is not in the delayed state");
+    });
+    const getState = vi
+      .fn()
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("waiting");
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (jobId === "response-link-analysis.form-1") {
+        return {
+          changeDelay,
+          getState,
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(changeDelay).toHaveBeenCalledWith(10_000);
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      { delay: 10_000, jobId: "response-link-analysis.form-1.follow-up" },
+    );
+  });
+
+  it("uses an overflow response link analysis job when primary and follow-up are both active", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (
+        jobId === "response-link-analysis.form-1" ||
+        jobId === "response-link-analysis.form-1.follow-up"
+      ) {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(queue?.add).toHaveBeenCalledTimes(1);
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      {
+        delay: 10_000,
+        jobId: expect.stringMatching(
+          /^response-link-analysis\.form-1\.overflow\./,
+        ),
+      },
+    );
+  });
+
   it("queues a primary response link analysis job when the follow-up job is already active", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];

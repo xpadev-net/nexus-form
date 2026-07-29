@@ -268,7 +268,7 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("marks the run as FAILED when the candidate cap is exceeded", async () => {
+  it("persists truncated shadow results when the candidate cap is exceeded", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
@@ -276,20 +276,24 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    await expect(
-      analyzeResponseLinks("form-1", {
-        maxCandidatePairs: 10,
-      }),
-    ).rejects.toThrow("candidate pair limit exceeded");
+    const result = await analyzeResponseLinks("form-1", {
+      maxCandidatePairs: 10,
+    });
 
+    expect(result.linkCount).toBe(10);
     const pairInsert = mocks.txInsertedRows.find(
       (entry) => entry.table === "responsePairLink",
     );
-    expect(pairInsert).toBeUndefined();
-    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
+    expect(pairInsert?.values).toHaveLength(10);
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: "FAILED",
+        metadataJson: expect.objectContaining({
+          candidatePairCount: 10,
+          candidatePairLimit: 10,
+          candidatePairsTruncated: true,
+        }),
+        status: "COMPLETED",
       }),
     );
   });
@@ -338,6 +342,7 @@ describe("handleResponseLinkAnalysis", () => {
       "responseSuspicionGroupMember",
       "responsePairLink",
       "responseSuspicionGroup",
+      expect.objectContaining({ id: "responseLinkAnalysisRun.id" }),
       expect.objectContaining({ formId: "responseLinkAnalysisLock.formId" }),
     ]);
   });
@@ -394,6 +399,70 @@ describe("handleResponseLinkAnalysis", () => {
         lockedAt: "responseLinkAnalysisLock.lockedAt",
       }),
     );
+  });
+
+  it("aborts analysis when the form lock heartbeat no longer updates a row", async () => {
+    vi.useFakeTimers();
+    let releaseResponseLoad: () => void = () => undefined;
+    const responseLoadBlocker = new Promise<void>((resolve) => {
+      releaseResponseLoad = resolve;
+    });
+    mocks.dbSelect.mockImplementation((selection: Record<string, unknown>) => {
+      if ("fingerprintType" in selection) {
+        const fingerprintQuery = {
+          from: vi.fn(() => fingerprintQuery),
+          where: vi.fn(async () => mocks.fingerprintRows),
+        };
+        return fingerprintQuery;
+      }
+      if (
+        "id" in selection &&
+        !("sessionId" in selection) &&
+        !("respondentUuid" in selection)
+      ) {
+        const staleRunQuery = {
+          from: vi.fn(() => staleRunQuery),
+          where: vi.fn(async () => mocks.staleRunRows),
+        };
+        return staleRunQuery;
+      }
+
+      const query = {
+        from: vi.fn(() => query),
+        orderBy: vi.fn(() => query),
+        limit: vi.fn(async () => {
+          await responseLoadBlocker;
+          return mocks.responseRows;
+        }),
+        where: vi.fn(() => query),
+      };
+      return query;
+    });
+    mocks.dbUpdate.mockImplementation((table: unknown) => ({
+      set: vi.fn(() => ({
+        where: vi.fn(async () => {
+          mocks.dbUpdatedTables.push(table);
+          if (
+            typeof table === "object" &&
+            table !== null &&
+            "lockedAt" in table
+          ) {
+            return { affectedRows: 0 };
+          }
+          return undefined;
+        }),
+      })),
+    }));
+
+    const result = handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    releaseResponseLoad();
+
+    await expect(result).rejects.toThrow("Lost response link analysis lock");
   });
 
   it("waits and retries when another worker holds the form lock", async () => {

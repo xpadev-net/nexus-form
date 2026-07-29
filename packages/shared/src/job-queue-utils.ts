@@ -13,7 +13,10 @@ export interface QueueJobHandleLike {
 
 function isJobNotInStateError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : undefined;
   return (
+    code === "JOB_NOT_IN_STATE" ||
     error.name === "JobNotInState" ||
     error.message.includes("not in the delayed state") ||
     error.message.includes("not in the expected state")
@@ -35,6 +38,19 @@ export interface QueueWithJobLookupLike<TJobData> {
   ): Promise<unknown>;
 }
 
+/**
+ * Result of a stable-id enqueue attempt.
+ *
+ * `added` means the requested job id is now represented in the queue. When an
+ * existing delayed job was refreshed with `changeDelay()`, `queue.add()` may be
+ * a BullMQ no-op for the same id and still counts as `added`. If no delay is
+ * provided, delayed-job refresh is skipped and the helper only removes terminal
+ * duplicates before adding.
+ *
+ * `delayed-job-state-changed` means a delayed job left the delayed state while
+ * its delay was being refreshed, so the caller should enqueue a fallback job id
+ * if the triggering mutation must be observed after the in-flight job.
+ */
 export type AddJobWithCleanupResult =
   | { outcome: "added" }
   | { outcome: "delayed-job-state-changed" };

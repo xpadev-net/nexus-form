@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   addJobWithCleanup,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
@@ -135,6 +136,10 @@ function isActiveJobState(state: unknown): boolean {
   return state === "active" || state === "waiting-children";
 }
 
+function responseLinkOverflowJobId(formId: string): string {
+  return `response-link-analysis.${formId}.overflow.${randomUUID()}`;
+}
+
 export async function enqueueResponseLinkAnalysisJob(params: {
   formId: string;
   reason: "response-submitted" | "response-deleted" | "manual";
@@ -148,7 +153,9 @@ export async function enqueueResponseLinkAnalysisJob(params: {
   const followUpJob = await queue.getJob(followUpJobId);
   const followUpState = await followUpJob?.getState();
   let jobId = primaryJobId;
-  if (isActiveJobState(followUpState)) {
+  if (isActiveJobState(primaryState) && isActiveJobState(followUpState)) {
+    jobId = responseLinkOverflowJobId(params.formId);
+  } else if (isActiveJobState(followUpState)) {
     jobId = primaryJobId;
   } else if (
     isRunningOrPendingJobState(followUpState) ||
@@ -157,20 +164,24 @@ export async function enqueueResponseLinkAnalysisJob(params: {
     jobId = followUpJobId;
   }
 
-  const result = await addJobWithCleanup(queue, {
-    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
-    jobData,
-    jobId,
-    jobName: params.reason,
-  });
-  if (
-    result.outcome === "delayed-job-state-changed" &&
-    jobId === followUpJobId
-  ) {
+  const enqueueWithJobId = (targetJobId: string) =>
+    addJobWithCleanup(queue, {
+      delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+      jobData,
+      jobId: targetJobId,
+      jobName: params.reason,
+    });
+
+  const result = await enqueueWithJobId(jobId);
+  if (result.outcome !== "delayed-job-state-changed") return;
+
+  const fallbackJobId = jobId === primaryJobId ? followUpJobId : primaryJobId;
+  const fallbackResult = await enqueueWithJobId(fallbackJobId);
+  if (fallbackResult.outcome === "delayed-job-state-changed") {
     await addJobWithCleanup(queue, {
       delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
       jobData,
-      jobId: primaryJobId,
+      jobId: responseLinkOverflowJobId(params.formId),
       jobName: params.reason,
     });
   }

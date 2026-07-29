@@ -578,7 +578,6 @@ export const responseLinkAnalysisRun = mysqlTable(
       table.status,
       table.completedAt,
     ),
-    index("RLAR_formId_modelVersion_idx").on(table.formId, table.modelVersion),
   ],
 );
 

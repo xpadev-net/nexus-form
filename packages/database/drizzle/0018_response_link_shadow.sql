@@ -70,7 +70,6 @@ ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `RSGM_group_fk` FOREIG
 ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `ResponseSuspicionGroupMember_responseId_FormResponse_id_fk` FOREIGN KEY (`responseId`) REFERENCES `FormResponse`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX `RLAR_formId_status_completedAt_idx` ON `ResponseLinkAnalysisRun` (`formId`,`status`,`completedAt`);--> statement-breakpoint
 CREATE INDEX `RLAR_form_model_status_completed_idx` ON `ResponseLinkAnalysisRun` (`formId`,`modelVersion`,`status`,`completedAt`);--> statement-breakpoint
-CREATE INDEX `RLAR_formId_modelVersion_idx` ON `ResponseLinkAnalysisRun` (`formId`,`modelVersion`);--> statement-breakpoint
 CREATE INDEX `RPL_formId_runId_strength_idx` ON `ResponsePairLink` (`formId`,`runId`,`strength`);--> statement-breakpoint
 CREATE INDEX `RPL_runId_responseA_idx` ON `ResponsePairLink` (`runId`,`responseIdA`);--> statement-breakpoint
 CREATE INDEX `RPL_runId_responseB_idx` ON `ResponsePairLink` (`runId`,`responseIdB`);--> statement-breakpoint

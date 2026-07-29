@@ -2615,11 +2615,6 @@
           "name": "RLAR_form_model_status_completed_idx",
           "columns": ["formId", "modelVersion", "status", "completedAt"],
           "isUnique": false
-        },
-        "RLAR_formId_modelVersion_idx": {
-          "name": "RLAR_formId_modelVersion_idx",
-          "columns": ["formId", "modelVersion"],
-          "isUnique": false
         }
       },
       "foreignKeys": {

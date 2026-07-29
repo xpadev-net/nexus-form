@@ -28,6 +28,7 @@ const DEFAULT_ANALYSIS_RESPONSE_LIMIT = 5000;
 const DEFAULT_MAX_CANDIDATE_PAIRS = 50_000;
 const FINGERPRINT_RESPONSE_ID_BATCH_SIZE = 1000;
 const INSERT_CHUNK_SIZE = 500;
+const LOCK_ACQUIRE_TIMEOUT_MS = 30 * 60_000;
 const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
 const LOCK_RETRY_DELAY_MS = 30_000;
 
@@ -49,17 +50,24 @@ type ResponseRow = {
   userAgent: string | null;
 };
 
-class CandidatePairLimitExceededError extends Error {
-  constructor(limit: number) {
-    super(`Response link analysis candidate pair limit exceeded: ${limit}`);
-    this.name = "CandidatePairLimitExceededError";
-  }
-}
-
 function isDuplicateKeyError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const record = error as Record<string, unknown>;
   return record.code === "ER_DUP_ENTRY" || record.errno === 1062;
+}
+
+function affectedRows(result: unknown): number | null {
+  if (!result || typeof result !== "object") return null;
+  if (Array.isArray(result)) return affectedRows(result[0]);
+  const value = (result as Record<string, unknown>).affectedRows;
+  return typeof value === "number" ? value : null;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  if (reason instanceof Error) throw reason;
+  throw new Error("Response link analysis aborted");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -72,7 +80,8 @@ async function acquireFormAnalysisLock(
   formId: string,
   jobId: string,
 ): Promise<void> {
-  while (true) {
+  const deadline = Date.now() + LOCK_ACQUIRE_TIMEOUT_MS;
+  do {
     await db
       .delete(responseLinkAnalysisLock)
       .where(
@@ -87,17 +96,27 @@ async function acquireFormAnalysisLock(
       return;
     } catch (error) {
       if (!isDuplicateKeyError(error)) throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Timed out waiting for response link analysis lock for form ${formId}`,
+        );
+      }
       await sleep(LOCK_RETRY_DELAY_MS);
     }
-  }
+  } while (Date.now() < deadline);
+
+  throw new Error(
+    `Timed out waiting for response link analysis lock for form ${formId}`,
+  );
 }
 
 async function withFormAnalysisLock<T>(
   formId: string,
   jobId: string,
-  callback: () => Promise<T>,
+  callback: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
   await acquireFormAnalysisLock(formId, jobId);
+  const abortController = new AbortController();
 
   const heartbeat = setInterval(() => {
     void db
@@ -109,17 +128,29 @@ async function withFormAnalysisLock<T>(
           eq(responseLinkAnalysisLock.jobId, jobId),
         ),
       )
+      .then((result) => {
+        if (affectedRows(result) === 0) {
+          abortController.abort(
+            new Error(`Lost response link analysis lock for form ${formId}`),
+          );
+        }
+      })
       .catch((error: unknown) => {
         console.warn(
           "[response-link-analysis] Failed to refresh form analysis lock",
           error,
+        );
+        abortController.abort(
+          error instanceof Error
+            ? error
+            : new Error("Failed to refresh response link analysis lock"),
         );
       });
   }, LOCK_HEARTBEAT_INTERVAL_MS);
   heartbeat.unref();
 
   try {
-    return await callback();
+    return await callback(abortController.signal);
   } finally {
     clearInterval(heartbeat);
     await db
@@ -302,7 +333,9 @@ function buildCandidatePairs(
 async function loadResponses(
   formId: string,
   maxResponses: number,
+  signal?: AbortSignal,
 ): Promise<{ responses: ResponseLinkAnalysisResponse[]; truncated: boolean }> {
+  throwIfAborted(signal);
   const responseRows = await db
     .select({
       id: formResponse.id,
@@ -331,6 +364,7 @@ async function loadResponses(
     retainedRows.map((row) => row.id),
     FINGERPRINT_RESPONSE_ID_BATCH_SIZE,
   )) {
+    throwIfAborted(signal);
     const batchRows = await db
       .select({
         responseId: fingerprintDetail.responseId,
@@ -343,6 +377,7 @@ async function loadResponses(
       .where(inArray(fingerprintDetail.responseId, responseIdBatch));
     fingerprints.push(...batchRows);
   }
+  throwIfAborted(signal);
 
   const fingerprintsByResponseId = new Map<
     string,
@@ -496,7 +531,7 @@ async function persistResults(params: {
 
 export async function analyzeResponseLinks(
   formId: string,
-  options: { maxCandidatePairs?: number } = {},
+  options: { maxCandidatePairs?: number; signal?: AbortSignal } = {},
 ): Promise<{
   runId: string;
   linkCount: number;
@@ -512,8 +547,14 @@ export async function analyzeResponseLinks(
   });
 
   try {
+    throwIfAborted(options.signal);
     const { responses, truncated: responsePopulationTruncated } =
-      await loadResponses(formId, DEFAULT_ANALYSIS_RESPONSE_LIMIT);
+      await loadResponses(
+        formId,
+        DEFAULT_ANALYSIS_RESPONSE_LIMIT,
+        options.signal,
+      );
+    throwIfAborted(options.signal);
     const stats = buildRarityStats(responses);
     const responsesById = new Map(
       responses.map((response) => [response.id, response]),
@@ -522,12 +563,14 @@ export async function analyzeResponseLinks(
       options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
     const { candidatePairs, skippedBucketCount, truncated } =
       buildCandidatePairs(responses, maxCandidatePairs);
-    if (truncated) {
-      throw new CandidatePairLimitExceededError(maxCandidatePairs);
-    }
     const links: ResponsePairLinkEvaluation[] = [];
 
+    let processedCandidatePairCount = 0;
     for (const key of candidatePairs) {
+      if (processedCandidatePairCount % INSERT_CHUNK_SIZE === 0) {
+        throwIfAborted(options.signal);
+      }
+      processedCandidatePairCount += 1;
       const [leftId, rightId] = splitPairKey(key);
       const left = responsesById.get(leftId);
       const right = responsesById.get(rightId);
@@ -537,6 +580,7 @@ export async function analyzeResponseLinks(
       links.push(link);
     }
 
+    throwIfAborted(options.signal);
     const groups = buildResponseSuspicionGroups(links);
     await persistResults({
       formId,
@@ -581,7 +625,7 @@ export async function handleResponseLinkAnalysis(
   return withFormAnalysisLock(
     data.formId,
     job.id ?? stableId("job", [data.formId]),
-    async () => {
+    async (signal) => {
       await db
         .update(responseLinkAnalysisRun)
         .set({ status: "STALE" })
@@ -621,9 +665,13 @@ export async function handleResponseLinkAnalysis(
         await db
           .delete(responseSuspicionGroup)
           .where(inArray(responseSuspicionGroup.runId, staleRunIdChunk));
+        await db
+          .delete(responseLinkAnalysisRun)
+          .where(inArray(responseLinkAnalysisRun.id, staleRunIdChunk));
       }
 
-      return analyzeResponseLinks(data.formId);
+      throwIfAborted(signal);
+      return analyzeResponseLinks(data.formId, { signal });
     },
   );
 }
