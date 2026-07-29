@@ -309,7 +309,7 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("fails the run instead of persisting incomplete results when the candidate cap is exceeded", async () => {
+  it("completes the run and skips buckets that would exceed the candidate cap", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
@@ -317,20 +317,25 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    await expect(
-      analyzeResponseLinks("form-1", {
-        maxCandidatePairs: 10,
-      }),
-    ).rejects.toThrow("exceeded candidate pair limit");
+    const result = await analyzeResponseLinks("form-1", {
+      maxCandidatePairs: 10,
+    });
 
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(0);
     const pairInsert = mocks.txInsertedRows.find(
       (entry) => entry.table === "responsePairLink",
     );
     expect(pairInsert).toBeUndefined();
-    expect(mocks.dbTransaction).not.toHaveBeenCalled();
-    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "FAILED" }),
+      expect.objectContaining({
+        metadataJson: expect.objectContaining({
+          candidatePairLimitExceeded: true,
+          skippedCandidateBucketCount: 1,
+        }),
+        status: "COMPLETED",
+      }),
     );
   });
 

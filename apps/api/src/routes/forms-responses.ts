@@ -609,6 +609,31 @@ async function getLatestCompletedResponseLinkRun(
   };
 }
 
+async function markResponseLinkAnalysisRunsStale(
+  formId: string,
+): Promise<void> {
+  await db
+    .update(responseLinkAnalysisRun)
+    .set({ status: "STALE" })
+    .where(
+      and(
+        eq(responseLinkAnalysisRun.formId, formId),
+        eq(responseLinkAnalysisRun.modelVersion, RESPONSE_LINK_MODEL_VERSION),
+        inArray(responseLinkAnalysisRun.status, ["COMPLETED", "PROCESSING"]),
+      ),
+    );
+}
+
+async function enqueueDeletionResponseLinkAnalysis(
+  formId: string,
+): Promise<void> {
+  await enqueueResponseLinkAnalysisJob({
+    formId,
+    reason: "response-deleted",
+  });
+  await markResponseLinkAnalysisRunsStale(formId);
+}
+
 function decorateResponseRow<T extends { id: string }>(
   row: T,
   scores: Map<string, number> | null,
@@ -2725,33 +2750,18 @@ export const formsResponsesRouter = createHonoApp()
           .delete(externalServiceValidationResult)
           .where(eq(externalServiceValidationResult.responseId, responseId));
         await tx.delete(formResponse).where(eq(formResponse.id, responseId));
-        await tx
-          .update(responseLinkAnalysisRun)
-          .set({ status: "STALE" })
-          .where(
-            and(
-              eq(responseLinkAnalysisRun.formId, formId),
-              eq(
-                responseLinkAnalysisRun.modelVersion,
-                RESPONSE_LINK_MODEL_VERSION,
-              ),
-              inArray(responseLinkAnalysisRun.status, [
-                "COMPLETED",
-                "PROCESSING",
-              ]),
-            ),
-          );
       });
-      enqueueResponseLinkAnalysisJob({
-        formId,
-        reason: "response-deleted",
-      }).catch((error) => {
-        logError("Failed to queue response link analysis", "forms-responses", {
-          error,
-          responseId,
-          formId,
-          reason: "response-deleted",
-        });
+      enqueueDeletionResponseLinkAnalysis(formId).catch((error) => {
+        logError(
+          "Failed to schedule response link analysis after deletion",
+          "forms-responses",
+          {
+            error,
+            responseId,
+            formId,
+            reason: "response-deleted",
+          },
+        );
       });
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
@@ -2815,34 +2825,15 @@ export const formsResponsesRouter = createHonoApp()
             await tx
               .delete(formResponse)
               .where(inArray(formResponse.id, idsToDelete));
-            await tx
-              .update(responseLinkAnalysisRun)
-              .set({ status: "STALE" })
-              .where(
-                and(
-                  eq(responseLinkAnalysisRun.formId, formId),
-                  eq(
-                    responseLinkAnalysisRun.modelVersion,
-                    RESPONSE_LINK_MODEL_VERSION,
-                  ),
-                  inArray(responseLinkAnalysisRun.status, [
-                    "COMPLETED",
-                    "PROCESSING",
-                  ]),
-                ),
-              );
           });
 
           for (const id of idsToDelete) {
             results.push({ responseId: id, status: "deleted" });
             deletedCount++;
           }
-          enqueueResponseLinkAnalysisJob({
-            formId,
-            reason: "response-deleted",
-          }).catch((error) => {
+          enqueueDeletionResponseLinkAnalysis(formId).catch((error) => {
             logError(
-              "Failed to queue response link analysis",
+              "Failed to schedule response link analysis after deletion",
               "forms-responses",
               {
                 error,

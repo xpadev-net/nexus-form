@@ -59,15 +59,6 @@ type BucketPairAddResult = {
   truncated: boolean;
 };
 
-class CandidatePairLimitExceededError extends Error {
-  constructor(candidatePairLimit: number, skippedBucketCount: number) {
-    super(
-      `Response link analysis exceeded candidate pair limit ${candidatePairLimit} and skipped ${skippedBucketCount} candidate bucket(s)`,
-    );
-    this.name = "CandidatePairLimitExceededError";
-  }
-}
-
 type ResponseRow = {
   id: string;
   sessionId: string | null;
@@ -619,8 +610,8 @@ async function persistResults(params: {
  * Builds and persists response-link shadow results for one form.
  *
  * Candidate generation is capped by `maxCandidatePairs`. Oversized popular
- * buckets are skipped and reported in completed-run metadata; exceeding the
- * global pair cap fails the run instead of persisting incomplete links/groups.
+ * buckets and buckets that would exceed the global pair cap are skipped and
+ * reported in completed-run metadata.
  */
 export async function analyzeResponseLinks(
   formId: string,
@@ -656,12 +647,6 @@ export async function analyzeResponseLinks(
       options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
     const { candidatePairs, skippedBucketCount, truncated } =
       buildCandidatePairs(responses, maxCandidatePairs);
-    if (truncated) {
-      throw new CandidatePairLimitExceededError(
-        maxCandidatePairs,
-        skippedBucketCount,
-      );
-    }
     const links: ResponsePairLinkEvaluation[] = [];
 
     let processedCandidatePairCount = 0;

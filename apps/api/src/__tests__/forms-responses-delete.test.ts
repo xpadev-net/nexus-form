@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => {
     db: {
       select: vi.fn(),
       transaction: vi.fn(),
+      update: vi.fn(),
     },
     deleteTables: [] as string[],
     externalValidationResults: [] as Array<Record<string, unknown>>,
@@ -193,6 +194,11 @@ function updateQuery(tableName: string) {
   };
 }
 
+async function flushResponseLinkAnalysisSideEffects(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 function tableName(table: unknown): string {
   if (typeof table !== "object" || table === null) return "unknown";
   const value = Reflect.get(table, "tableName");
@@ -213,6 +219,9 @@ beforeEach(() => {
   mocks.formAuthRoles.length = 0;
   mocks.whereConditions.length = 0;
   mocks.db.select.mockReset();
+  mocks.db.update.mockImplementation((table: unknown) =>
+    updateQuery(tableName(table)),
+  );
   mocks.db.transaction.mockImplementation(async (callback) =>
     callback(mocks.tx),
   );
@@ -255,6 +264,7 @@ describe("response deletion API", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ ok: true });
+    await flushResponseLinkAnalysisSideEffects();
     expect(mocks.deleteTables).toEqual([
       "fingerprintDetail",
       "externalServiceValidationResult",
@@ -304,6 +314,35 @@ describe("response deletion API", () => {
       formId: "form-1",
       reason: "response-deleted",
     });
+  });
+
+  it("keeps the previous response link analysis available when deletion requeue fails", async () => {
+    mocks.db.select.mockReturnValueOnce(
+      selectLimitQuery([{ id: "response-1" }]),
+    );
+    const router = await importRouter();
+    const { enqueueResponseLinkAnalysisJob } = await import("../lib/queues");
+    vi.mocked(enqueueResponseLinkAnalysisJob).mockRejectedValueOnce(
+      new Error("queue unavailable"),
+    );
+
+    const res = await router.request("/form-1/responses/response-1", {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true });
+    await flushResponseLinkAnalysisSideEffects();
+    expect(enqueueResponseLinkAnalysisJob).toHaveBeenCalledWith({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+    expect(mocks.whereConditions).not.toContainEqual(
+      expect.objectContaining({
+        tableName: "responseLinkAnalysisRun",
+        values: { status: "STALE" },
+      }),
+    );
   });
 
   it("queues response link analysis after bulk deletion", async () => {
