@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   queueAdd: vi.fn(async () => undefined),
   queueGetJob: vi.fn(async () => null),
   redisDel: vi.fn(async () => 0),
+  redisExists: vi.fn(async () => 0),
   redisQuit: vi.fn(async () => "OK"),
   queueOptions: [] as unknown[],
   staleRunRows: [] as Array<{ id: string }>,
@@ -51,6 +52,7 @@ vi.mock("ioredis", () => ({
   default: vi.fn(function redisMock() {
     return {
       del: mocks.redisDel,
+      exists: mocks.redisExists,
       quit: mocks.redisQuit,
     };
   }),
@@ -208,6 +210,8 @@ beforeEach(() => {
   mocks.redisQuit.mockClear();
   mocks.redisDel.mockReset();
   mocks.redisDel.mockResolvedValue(0);
+  mocks.redisExists.mockReset();
+  mocks.redisExists.mockResolvedValue(0);
   setupDbMocks();
 });
 
@@ -500,7 +504,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("queues a fixed follow-up after consuming a dirty response-link marker", async () => {
-    mocks.redisDel.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+    mocks.redisExists.mockResolvedValueOnce(1);
 
     const result = await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "manual" },
@@ -523,7 +527,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("uses response-link retry defaults for dirty follow-up queueing", async () => {
-    mocks.redisDel.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+    mocks.redisExists.mockResolvedValueOnce(1);
 
     await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "manual" },
@@ -544,7 +548,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("closes response-link helper queue and Redis resources", async () => {
-    mocks.redisDel.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+    mocks.redisExists.mockResolvedValueOnce(1);
 
     await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "manual" },
@@ -554,6 +558,23 @@ describe("handleResponseLinkAnalysis", () => {
 
     expect(mocks.queueClose).toHaveBeenCalledTimes(1);
     expect(mocks.redisQuit).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves dirty marker when fixed follow-up queueing fails", async () => {
+    mocks.redisExists.mockResolvedValueOnce(1);
+    mocks.queueAdd.mockRejectedValueOnce(new Error("queue unavailable"));
+
+    await expect(
+      handleResponseLinkAnalysis({
+        data: { formId: "form-1", reason: "manual" },
+        id: "job-1",
+      } as Job<ResponseLinkAnalysisJobData>),
+    ).rejects.toThrow("queue unavailable");
+
+    expect(mocks.redisDel).toHaveBeenCalledTimes(1);
+    expect(mocks.redisDel).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+    );
   });
 
   it("runs dirty rescue jobs even when the marker was already consumed", async () => {

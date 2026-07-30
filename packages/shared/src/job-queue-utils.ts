@@ -11,6 +11,8 @@ export interface QueueJobHandleLike {
   remove(): Promise<unknown>;
 }
 
+const BULLMQ_JOB_NOT_IN_STATE_ERROR_CODE = -3;
+
 function isJobNotInStateError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const code = Object.hasOwn(error, "code")
@@ -18,7 +20,7 @@ function isJobNotInStateError(error: unknown): boolean {
     : undefined;
   return (
     code === "JOB_NOT_IN_STATE" ||
-    code === -3 ||
+    code === BULLMQ_JOB_NOT_IN_STATE_ERROR_CODE ||
     error.name === "JobNotInState" ||
     error.message.includes("not in the delayed state") ||
     error.message.includes("not in the expected state")

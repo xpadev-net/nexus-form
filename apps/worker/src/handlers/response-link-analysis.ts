@@ -138,6 +138,13 @@ async function consumeResponseLinkAnalysisDirty(
   return deleted > 0;
 }
 
+async function hasResponseLinkAnalysisDirty(formId: string): Promise<boolean> {
+  const exists = await getResponseLinkAnalysisDirtyClient().exists(
+    getResponseLinkAnalysisDirtyKey(formId),
+  );
+  return exists > 0;
+}
+
 async function enqueueDirtyResponseLinkFollowUp(formId: string): Promise<void> {
   await addJobWithCleanup(getResponseLinkAnalysisQueue(), {
     delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
@@ -815,8 +822,9 @@ export async function handleResponseLinkAnalysis(
       return analyzeResponseLinks(data.formId, { signal });
     },
   );
-  if (await consumeResponseLinkAnalysisDirty(data.formId)) {
+  if (await hasResponseLinkAnalysisDirty(data.formId)) {
     await enqueueDirtyResponseLinkFollowUp(data.formId);
+    await consumeResponseLinkAnalysisDirty(data.formId);
   }
   return result;
 }
