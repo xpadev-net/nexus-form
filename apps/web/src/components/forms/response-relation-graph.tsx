@@ -1,16 +1,17 @@
 import type { ResponseRelationGraphResponse } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
-  forceCenter,
   forceCollide,
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
 import { AlertTriangle, Loader2, Network } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type PointerEvent, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { client, rpc } from "@/lib/api";
@@ -51,8 +52,15 @@ type LayoutResult = {
   links: PositionedLayoutLink[];
 };
 
-const graphWidth = 900;
-const graphHeight = 520;
+const graphWidth = 1320;
+const graphHeight = 760;
+const graphViewportWidth = 900;
+const graphViewportHeight = 520;
+const graphPadding = 32;
+const initialGraphOrigin = {
+  x: (graphWidth - graphViewportWidth) / 2,
+  y: (graphHeight - graphViewportHeight) / 2,
+};
 
 const reasonLabels: Record<string, string> = {
   "hard:session": "同一セッション",
@@ -169,7 +177,7 @@ function responseShortId(responseId: string): string {
   return responseId.slice(0, 8);
 }
 
-function buildLayout(
+export function buildLayout(
   nodes: GraphNode[],
   edges: GraphEdge[],
   denseClusters: DenseCluster[],
@@ -180,8 +188,8 @@ function buildLayout(
       id: node.responseId,
       node,
       hidden: false,
-      x: graphWidth / 2 + Math.cos(angle) * 180,
-      y: graphHeight / 2 + Math.sin(angle) * 150,
+      x: Math.cos(angle) * 80,
+      y: Math.sin(angle) * 60,
     };
   });
   const nodeIds = new Set(layoutNodes.map((node) => node.id));
@@ -209,8 +217,8 @@ function buildLayout(
       node: null,
       hidden: true,
       clusterId: cluster.id,
-      x: graphWidth / 2,
-      y: graphHeight / 2,
+      x: 0,
+      y: 0,
     });
     for (const responseId of memberIds) {
       layoutLinks.push({
@@ -229,20 +237,24 @@ function buildLayout(
       "link",
       forceLink<LayoutNode, LayoutLink>(layoutLinks)
         .id((node) => node.id)
-        .distance((link) => (link.cluster ? 48 : 120))
-        .strength((link) => (link.cluster ? 0.6 : 0.25)),
+        .distance((link) => (link.cluster ? 44 : 96))
+        .strength((link) => (link.cluster ? 0.7 : 0.35)),
     )
-    .force("charge", forceManyBody<LayoutNode>().strength(-260))
-    .force("center", forceCenter(graphWidth / 2, graphHeight / 2))
+    .force("charge", forceManyBody<LayoutNode>().strength(-110))
+    .force("x", forceX<LayoutNode>(0).strength(0.08))
+    .force("y", forceY<LayoutNode>(0).strength(0.08))
     .force("collide", forceCollide<LayoutNode>().radius(24))
     .stop()
-    .tick(180);
+    .tick(240);
 
   for (const node of layoutNodes) {
-    node.x = Math.min(graphWidth - 28, Math.max(28, node.x ?? graphWidth / 2));
+    node.x = Math.min(
+      graphWidth - graphPadding,
+      Math.max(graphPadding, (node.x ?? 0) + graphWidth / 2),
+    );
     node.y = Math.min(
-      graphHeight - 28,
-      Math.max(28, node.y ?? graphHeight / 2),
+      graphHeight - graphPadding,
+      Math.max(graphPadding, (node.y ?? 0) + graphHeight / 2),
     );
   }
 
@@ -310,7 +322,7 @@ type ResponseRelationGraphCanvasProps = {
   onSelectResponse: (responseId: string) => void;
 };
 
-function ResponseRelationGraphCanvas({
+export function ResponseRelationGraphCanvas({
   layout,
   selectedEdge,
   selectedResponseId,
@@ -318,13 +330,76 @@ function ResponseRelationGraphCanvas({
   onSelectEdge,
   onSelectResponse,
 }: ResponseRelationGraphCanvasProps) {
+  const [viewBoxOrigin, setViewBoxOrigin] = useState(initialGraphOrigin);
+  const [panStart, setPanStart] = useState<{
+    clientX: number;
+    clientY: number;
+    originX: number;
+    originY: number;
+    pointerId: number;
+  } | null>(null);
+
+  const clampViewBoxOrigin = (x: number, y: number) => ({
+    x: Math.min(graphWidth - graphViewportWidth, Math.max(0, x)),
+    y: Math.min(graphHeight - graphViewportHeight, Math.max(0, y)),
+  });
+
+  const startPanning = (event: PointerEvent<SVGSVGElement>) => {
+    if (
+      event.button !== 0 ||
+      !(event.target instanceof Element) ||
+      event.target.tagName.toLowerCase() !== "rect"
+    ) {
+      return;
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setPanStart({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      originX: viewBoxOrigin.x,
+      originY: viewBoxOrigin.y,
+      pointerId: event.pointerId,
+    });
+  };
+
+  const panCanvas = (event: PointerEvent<SVGSVGElement>) => {
+    if (!panStart) return;
+    if (event.pointerId !== panStart.pointerId) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+    const dx =
+      ((event.clientX - panStart.clientX) * graphViewportWidth) / bounds.width;
+    const dy =
+      ((event.clientY - panStart.clientY) * graphViewportHeight) /
+      bounds.height;
+    setViewBoxOrigin(
+      clampViewBoxOrigin(panStart.originX - dx, panStart.originY - dy),
+    );
+  };
+
+  const stopPanning = (event: PointerEvent<SVGSVGElement>) => {
+    if (!panStart) return;
+    if (event.pointerId !== panStart.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setPanStart(null);
+  };
+
   return (
     <div className="relative overflow-hidden rounded-md border bg-background">
       <svg
         role="img"
         aria-label="回答の関係グラフ"
-        viewBox={`0 0 ${graphWidth} ${graphHeight}`}
-        className="h-[520px] w-full"
+        viewBox={`${viewBoxOrigin.x} ${viewBoxOrigin.y} ${graphViewportWidth} ${graphViewportHeight}`}
+        className={[
+          "h-[520px] w-full touch-none select-none",
+          panStart ? "cursor-grabbing" : "cursor-grab",
+        ].join(" ")}
+        onPointerDown={startPanning}
+        onPointerMove={panCanvas}
+        onPointerUp={stopPanning}
+        onPointerCancel={stopPanning}
       >
         <rect
           width={graphWidth}
