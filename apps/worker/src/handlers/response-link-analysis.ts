@@ -33,6 +33,7 @@ import { getPublisherConnectionOptions, redisConnection } from "../lib/redis";
 const CANDIDATE_BUCKET_LIMIT = 200;
 const DEFAULT_ANALYSIS_RESPONSE_LIMIT = 5000;
 const DEFAULT_MAX_CANDIDATE_PAIRS = 50_000;
+const HIGH_CONFIDENCE_BUCKET_PAIR_LIMIT = 500_000;
 const FINGERPRINT_RESPONSE_ID_BATCH_SIZE = 1000;
 const INSERT_CHUNK_SIZE = 500;
 const LOCK_ACQUIRE_TIMEOUT_MS = 30 * 60_000;
@@ -289,6 +290,7 @@ function addBucketPairs(
     bucketLimitExceededIsTruncated?: boolean;
     bucketLimit?: number;
     enforceCandidateLimit?: boolean;
+    highConfidenceBucketPairLimit?: number;
     maxCandidatePairs: number;
   },
 ): BucketPairAddResult {
@@ -299,6 +301,13 @@ function addBucketPairs(
       skippedBucketCount: 1,
       truncated: options.bucketLimitExceededIsTruncated ?? false,
     };
+  }
+  const pairCount = (ids.length * (ids.length - 1)) / 2;
+  if (
+    options.highConfidenceBucketPairLimit !== undefined &&
+    pairCount > options.highConfidenceBucketPairLimit
+  ) {
+    return { skippedBucketCount: 1, truncated: true };
   }
   const newPairKeys: string[] = [];
   for (let i = 0; i < ids.length; i += 1) {
@@ -359,6 +368,10 @@ function pushLinkValue(
     return;
   }
   linksByResponseId.set(responseId, [link]);
+}
+
+function isDirtyResponseLinkAnalysisJob(jobId: string): boolean {
+  return jobId.includes(".dirty.");
 }
 
 function buildCandidatePairs(
@@ -423,6 +436,7 @@ function buildCandidatePairs(
     for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
         enforceCandidateLimit: false,
+        highConfidenceBucketPairLimit: HIGH_CONFIDENCE_BUCKET_PAIR_LIMIT,
         maxCandidatePairs,
       });
       skippedBucketCount += result.skippedBucketCount;
@@ -812,7 +826,9 @@ export async function handleResponseLinkAnalysis(
           .where(inArray(responseLinkAnalysisRun.id, staleRunIdChunk));
       }
 
-      await consumeResponseLinkAnalysisDirty(data.formId);
+      if (isDirtyResponseLinkAnalysisJob(jobId)) {
+        await consumeResponseLinkAnalysisDirty(data.formId);
+      }
       throwIfAborted(signal);
       return analyzeResponseLinks(data.formId, { signal });
     },

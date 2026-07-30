@@ -371,6 +371,30 @@ describe("analyzeResponseLinks", () => {
     );
   });
 
+  it("skips extreme high-confidence buckets instead of materializing millions of pairs", async () => {
+    mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
+      id: `response-${index.toString().padStart(4, "0")}`,
+      sessionId: "same-session",
+      respondentUuid: `respondent-${index}`,
+      userAgent: null,
+    }));
+
+    const result = await analyzeResponseLinks("form-1");
+
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(0);
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadataJson: expect.objectContaining({
+          candidatePairLimitExceeded: true,
+          skippedCandidateBucketCount: 1,
+        }),
+        status: "COMPLETED",
+      }),
+    );
+  });
+
   it("completes the run and skips lower-confidence buckets that would exceed the candidate cap", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
@@ -516,10 +540,7 @@ describe("handleResponseLinkAnalysis", () => {
     } as Job<ResponseLinkAnalysisJobData>);
 
     expect(result.linkCount).toBe(0);
-    expect(mocks.redisDel).toHaveBeenCalledTimes(1);
-    expect(mocks.redisDel).toHaveBeenCalledWith(
-      "response-link-analysis:dirty:form-1",
-    );
+    expect(mocks.redisDel).not.toHaveBeenCalled();
     expect(mocks.redisEval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('get', KEYS[1]) == ARGV[1]"),
       1,
@@ -581,7 +602,17 @@ describe("handleResponseLinkAnalysis", () => {
       } as Job<ResponseLinkAnalysisJobData>),
     ).rejects.toThrow("queue unavailable");
 
-    expect(mocks.redisDel).toHaveBeenCalledTimes(1);
+    expect(mocks.redisDel).not.toHaveBeenCalled();
+    expect(mocks.redisEval).not.toHaveBeenCalled();
+  });
+
+  it("consumes the marker before analyzing a dirty rescue job", async () => {
+    const result = await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "response-submitted" },
+      id: "response-link-analysis.form-1.dirty.178528321",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    expect(result.linkCount).toBe(0);
     expect(mocks.redisDel).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
     );

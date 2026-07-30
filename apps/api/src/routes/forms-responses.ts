@@ -639,7 +639,7 @@ async function markResponseLinkAnalysisRunsStale(
       and(
         eq(responseLinkAnalysisRun.formId, formId),
         eq(responseLinkAnalysisRun.modelVersion, RESPONSE_LINK_MODEL_VERSION),
-        inArray(responseLinkAnalysisRun.status, ["COMPLETED", "PROCESSING"]),
+        eq(responseLinkAnalysisRun.status, "COMPLETED"),
       ),
     );
 }
@@ -647,11 +647,11 @@ async function markResponseLinkAnalysisRunsStale(
 async function enqueueDeletionResponseLinkAnalysis(
   formId: string,
 ): Promise<void> {
-  await markResponseLinkAnalysisRunsStale(formId);
   await enqueueResponseLinkAnalysisJob({
     formId,
     reason: "response-deleted",
   });
+  await markResponseLinkAnalysisRunsStale(formId);
 }
 
 async function getLiveResponseSuspicionGroupAggregates(
