@@ -423,7 +423,7 @@ describe("analyzeResponseLinks", () => {
     );
   });
 
-  it("fails extreme high-confidence buckets instead of publishing partial pairs", async () => {
+  it("persists extreme high-confidence buckets as dense groups without partial pairs", async () => {
     mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
       id: `response-${index.toString().padStart(4, "0")}`,
       sessionId: "same-session",
@@ -431,17 +431,89 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    await expect(analyzeResponseLinks("form-1")).rejects.toThrow(
-      "High-confidence response-link bucket would create 501501 pairs",
-    );
+    const result = await analyzeResponseLinks("form-1");
 
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(1);
     const pairInsertValues = mocks.txInsertedRows
       .filter((entry) => entry.table === "responsePairLink")
       .flatMap((entry) => (Array.isArray(entry.values) ? entry.values : []));
     expect(pairInsertValues).toHaveLength(0);
-    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
+    const groupInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responseSuspicionGroup",
+    );
+    expect(groupInsert?.values).toEqual(
+      expect.objectContaining({
+        responseCount: 1002,
+        strongLinkCount: 501_501,
+        supportLinkCount: 0,
+        technicalConfidence: "HARD",
+        summaryJson: expect.objectContaining({
+          denseBucket: expect.objectContaining({
+            omittedPairLinks: true,
+            pairCount: 501_501,
+            reasonCode: "hard:session",
+            strength: "HARD",
+          }),
+          reasonCodes: ["hard:session", "dense:pair-links-omitted"],
+        }),
+      }),
+    );
+    const memberInsertValues = mocks.txInsertedRows
+      .filter((entry) => entry.table === "responseSuspicionGroupMember")
+      .flatMap((entry) => (Array.isArray(entry.values) ? entry.values : []));
+    expect(memberInsertValues).toHaveLength(1002);
+    expect(memberInsertValues[0]).toEqual(
+      expect.objectContaining({ strongestStrength: "HARD" }),
+    );
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "FAILED" }),
+      expect.objectContaining({
+        metadataJson: expect.objectContaining({
+          candidatePairLimitExceeded: true,
+          skippedCandidateBucketCount: 0,
+        }),
+        status: "COMPLETED",
+      }),
+    );
+  });
+
+  it("merges overlapping dense session and v6 buckets into one group", async () => {
+    mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
+      id: `response-${index.toString().padStart(4, "0")}`,
+      sessionId: "same-session",
+      respondentUuid: `respondent-${index}`,
+      userAgent: null,
+    }));
+    mocks.fingerprintRows = mocks.responseRows.map((response) => ({
+      responseId: response.id,
+      fingerprintType: "telemetry",
+      componentName: "v6",
+      componentValue: null,
+      componentValueHash: "same-v6",
+    }));
+
+    const result = await analyzeResponseLinks("form-1");
+
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(1);
+    const groupInsertValues = mocks.txInsertedRows
+      .filter((entry) => entry.table === "responseSuspicionGroup")
+      .map((entry) => entry.values);
+    expect(groupInsertValues).toHaveLength(1);
+    expect(groupInsertValues[0]).toEqual(
+      expect.objectContaining({
+        responseCount: 1002,
+        strongLinkCount: 501_501,
+        technicalConfidence: "HARD",
+        summaryJson: expect.objectContaining({
+          reasonCodes: [
+            "hard:session",
+            "dense:pair-links-omitted",
+            "strong:telemetry:v6",
+          ],
+        }),
+      }),
     );
   });
 
@@ -476,6 +548,40 @@ describe("analyzeResponseLinks", () => {
         metadataJson: expect.objectContaining({
           candidatePairLimitExceeded: true,
           skippedCandidateBucketCount: 1,
+        }),
+        status: "COMPLETED",
+      }),
+    );
+  });
+
+  it("does not let earlier bounded buckets consume later bucket capacity", async () => {
+    mocks.responseRows = Array.from({ length: 8 }, (_, index) => ({
+      id: `response-${index.toString().padStart(3, "0")}`,
+      sessionId: null,
+      respondentUuid: `respondent-${index}`,
+      userAgent: null,
+    }));
+    mocks.fingerprintRows = mocks.responseRows.map((response, index) => ({
+      responseId: response.id,
+      fingerprintType: "telemetry",
+      componentName: "v4",
+      componentValue: null,
+      componentValueHash: index < 4 ? "same-v4-a" : "same-v4-b",
+    }));
+
+    const result = await analyzeResponseLinks("form-1", {
+      maxCandidatePairs: 10,
+    });
+
+    expect(result.linkCount).toBe(12);
+    expect(result.groupCount).toBe(0);
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadataJson: expect.objectContaining({
+          candidatePairCount: 12,
+          candidatePairLimitExceeded: false,
+          skippedCandidateBucketCount: 0,
         }),
         status: "COMPLETED",
       }),

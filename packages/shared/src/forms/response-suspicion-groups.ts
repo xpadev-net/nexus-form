@@ -49,8 +49,8 @@ export type ResponseSuspicionGroupListItem = z.infer<
  * Paginated list response for the latest completed response-link shadow run.
  * groups contains at most the API page size, and hasNext indicates that more
  * groups exist in persisted analysis data. candidatePairLimitExceeded means
- * high-collision candidate buckets were skipped to keep the completed shadow
- * result bounded.
+ * at least one candidate bucket exceeded pair-row bounds; hard/strong dense
+ * buckets can still be represented as complete groups without pair rows.
  */
 export const ResponseSuspicionGroupsResponseSchema = z.object({
   run: z

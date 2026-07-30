@@ -461,6 +461,80 @@ describe("response deletion API", () => {
     expect(suspicionGroupsQuery.offset).toHaveBeenNthCalledWith(2, 100);
   });
 
+  it("does not double-count pair rows inside dense suspicion group aggregates", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense",
+      technicalConfidence: "HARD",
+      responseCount: 3,
+      strongLinkCount: 3,
+      supportLinkCount: 0,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "hard:session",
+          strength: "HARD",
+        },
+        reasonCodes: ["hard:session", "dense:pair-links-omitted"],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+          { groupId: "dense-group", responseId: "response-3" },
+        ]),
+      )
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          {
+            responseIdA: "response-1",
+            responseIdB: "response-2",
+            strength: "STRONG",
+          },
+          {
+            responseIdA: "response-2",
+            responseIdB: "response-3",
+            strength: "SUPPORT",
+          },
+        ]),
+      );
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense",
+          responseCount: 3,
+          strongLinkCount: 3,
+          supportLinkCount: 0,
+        },
+      ],
+    });
+  });
+
   it("queues response link analysis after bulk deletion", async () => {
     mocks.db.select.mockReturnValueOnce(
       selectWhereQuery([{ id: "response-1" }]),

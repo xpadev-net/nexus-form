@@ -93,6 +93,12 @@ export type ResponseSuspicionGroupEvaluation = {
   summary: {
     reasonCodes: string[];
     topFamilies: FamilyContribution[];
+    denseBucket?: {
+      omittedPairLinks: boolean;
+      pairCount: number;
+      reasonCode: string;
+      strength: Extract<ResponseLinkStrength, "HARD" | "STRONG">;
+    };
   };
 };
 

@@ -475,6 +475,14 @@ function addUniquenessScore<T extends { id: string }>(
 
 const linkSummarySchema = z
   .object({
+    denseBucket: z
+      .object({
+        omittedPairLinks: z.boolean(),
+        pairCount: z.number().int().nonnegative(),
+        reasonCode: z.string(),
+        strength: z.enum(["HARD", "STRONG"]),
+      })
+      .optional(),
     reasonCodes: z.array(z.string()).optional(),
     topFamilies: z
       .array(
@@ -511,6 +519,12 @@ const responseLinkRunMetadataSchema = z
   .passthrough();
 
 function parseLinkSummary(value: unknown): {
+  denseBucket: {
+    omittedPairLinks: boolean;
+    pairCount: number;
+    reasonCode: string;
+    strength: "HARD" | "STRONG";
+  } | null;
   reasonCodes: string[];
   topFamilies: Array<{ family: string; score: number; reasonCodes: string[] }>;
 } {
@@ -521,6 +535,7 @@ function parseLinkSummary(value: unknown): {
     });
   }
   return {
+    denseBucket: parsed.success ? (parsed.data.denseBucket ?? null) : null,
     reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
     topFamilies: parsed.success ? (parsed.data.topFamilies ?? []) : [],
   };
@@ -640,9 +655,15 @@ async function enqueueDeletionResponseLinkAnalysis(
 
 async function getLiveResponseSuspicionGroupAggregates(
   runId: string,
-  groupIds: string[],
+  groups: Array<{ id: string; summaryJson: unknown }>,
 ): Promise<Map<string, LiveResponseSuspicionGroupAggregate>> {
+  const groupIds = groups.map((group) => group.id);
   if (groupIds.length === 0) return new Map();
+  const denseGroups = new Set(
+    groups
+      .filter((group) => parseLinkSummary(group.summaryJson).denseBucket)
+      .map((group) => group.id),
+  );
   const memberRows = await db
     .select({
       groupId: responseSuspicionGroupMember.groupId,
@@ -670,9 +691,12 @@ async function getLiveResponseSuspicionGroupAggregates(
 
   const aggregates = new Map<string, LiveResponseSuspicionGroupAggregate>();
   for (const [groupId, members] of groupMembers) {
+    const densePairCount = denseGroups.has(groupId)
+      ? (members.size * (members.size - 1)) / 2
+      : 0;
     aggregates.set(groupId, {
       responseCount: members.size,
-      strongLinkCount: 0,
+      strongLinkCount: densePairCount,
       supportLinkCount: 0,
     });
   }
@@ -699,6 +723,7 @@ async function getLiveResponseSuspicionGroupAggregates(
     if (!leftGroups || !rightGroups) continue;
     for (const groupId of leftGroups) {
       if (!rightGroups.has(groupId)) continue;
+      if (denseGroups.has(groupId)) continue;
       const aggregate = aggregates.get(groupId);
       if (!aggregate) continue;
       if (link.strength === "STRONG" || link.strength === "HARD") {
@@ -2527,7 +2552,7 @@ export const formsResponsesRouter = createHonoApp()
       offset += batchRows.length;
       const aggregates = await getLiveResponseSuspicionGroupAggregates(
         run.id,
-        batchRows.map((row) => row.id),
+        batchRows,
       );
       for (const row of batchRows) {
         const aggregate = aggregates.get(row.id);
@@ -2610,7 +2635,7 @@ export const formsResponsesRouter = createHonoApp()
       return c.json(errorResponse("Suspicion group not found"), 404);
     }
     const aggregates = await getLiveResponseSuspicionGroupAggregates(run.id, [
-      groupRow.id,
+      groupRow,
     ]);
     const aggregate = aggregates.get(groupRow.id);
     if (

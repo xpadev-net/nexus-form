@@ -24,6 +24,7 @@ import {
   type ResponseLinkAnalysisResponse,
   type ResponseLinkStrength,
   type ResponsePairLinkEvaluation,
+  type ResponseSuspicionGroupEvaluation,
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
 import { type DefaultJobOptions, type Job, Queue } from "bullmq";
@@ -53,6 +54,7 @@ const RESPONSE_LINK_ANALYSIS_JOB_DEFAULTS: DefaultJobOptions = {
 
 type CandidatePairBuildResult = {
   candidatePairs: Set<string>;
+  denseGroups: ResponseSuspicionGroupEvaluation[];
   skippedBucketCount: number;
   truncated: boolean;
 };
@@ -65,6 +67,12 @@ type BucketPairAddResult = {
 type CandidateBucket = {
   key: string;
   responseIds: string[];
+};
+
+type DenseGroupBucket = {
+  responseIds: string[];
+  reasonCode: string;
+  strength: Extract<ResponseLinkStrength, "HARD" | "STRONG">;
 };
 
 type ResponseRow = {
@@ -375,15 +383,19 @@ function addBucketPairs(
   options: {
     bucketLimitExceededIsTruncated?: boolean;
     bucketLimit?: number;
+    denseGroup?: Omit<DenseGroupBucket, "responseIds">;
     enforceCandidateLimit?: boolean;
     highConfidenceBucketPairLimit?: number;
     maxCandidatePairs: number;
   },
-): BucketPairAddResult {
+): BucketPairAddResult & { denseGroup: DenseGroupBucket | null } {
   const ids = [...new Set(responseIds)].sort();
-  if (ids.length < 2) return { skippedBucketCount: 0, truncated: false };
+  if (ids.length < 2) {
+    return { denseGroup: null, skippedBucketCount: 0, truncated: false };
+  }
   if (options.bucketLimit !== undefined && ids.length > options.bucketLimit) {
     return {
+      denseGroup: null,
       skippedBucketCount: 1,
       truncated: options.bucketLimitExceededIsTruncated ?? false,
     };
@@ -393,9 +405,18 @@ function addBucketPairs(
     options.highConfidenceBucketPairLimit !== undefined &&
     pairCount > options.highConfidenceBucketPairLimit
   ) {
-    throw new Error(
-      `High-confidence response-link bucket would create ${pairCount} pairs, exceeding the ${options.highConfidenceBucketPairLimit} pair limit`,
-    );
+    if (!options.denseGroup) {
+      return { denseGroup: null, skippedBucketCount: 1, truncated: true };
+    }
+    return {
+      denseGroup: {
+        responseIds: ids,
+        reasonCode: options.denseGroup.reasonCode,
+        strength: options.denseGroup.strength,
+      },
+      skippedBucketCount: 0,
+      truncated: true,
+    };
   }
   const newPairKeys: string[] = [];
   for (let i = 0; i < ids.length; i += 1) {
@@ -408,16 +429,16 @@ function addBucketPairs(
       newPairKeys.push(key);
       if (
         options.enforceCandidateLimit !== false &&
-        candidatePairs.size + newPairKeys.length > options.maxCandidatePairs
+        newPairKeys.length > options.maxCandidatePairs
       ) {
-        return { skippedBucketCount: 1, truncated: true };
+        return { denseGroup: null, skippedBucketCount: 1, truncated: true };
       }
     }
   }
   for (const key of newPairKeys) {
     candidatePairs.add(key);
   }
-  return { skippedBucketCount: 0, truncated: false };
+  return { denseGroup: null, skippedBucketCount: 0, truncated: false };
 }
 
 function sortedCandidateBuckets(
@@ -458,6 +479,79 @@ function pushLinkValue(
   linksByResponseId.set(responseId, [link]);
 }
 
+function denseGroupKey(responseIds: string[]): string {
+  return `dense-${stableId("group", responseIds)}`;
+}
+
+function denseGroupPairCount(responseIds: string[]): number {
+  return (responseIds.length * (responseIds.length - 1)) / 2;
+}
+
+function buildDenseSuspicionGroup(
+  bucket: DenseGroupBucket,
+): ResponseSuspicionGroupEvaluation {
+  const responseIds = [...new Set(bucket.responseIds)].sort();
+  const pairCount = denseGroupPairCount(responseIds);
+  return {
+    groupKey: denseGroupKey(responseIds),
+    technicalConfidence: bucket.strength,
+    responseIds,
+    strongLinkCount: pairCount,
+    supportLinkCount: 0,
+    summary: {
+      reasonCodes: [bucket.reasonCode, "dense:pair-links-omitted"],
+      topFamilies: [],
+      denseBucket: {
+        omittedPairLinks: true,
+        pairCount,
+        reasonCode: bucket.reasonCode,
+        strength: bucket.strength,
+      },
+    },
+  };
+}
+
+function mergeDenseSuspicionGroups(
+  groups: ResponseSuspicionGroupEvaluation[],
+): ResponseSuspicionGroupEvaluation[] {
+  const groupsByKey = new Map<string, ResponseSuspicionGroupEvaluation>();
+  for (const group of groups) {
+    const existing = groupsByKey.get(group.groupKey);
+    if (!existing) {
+      groupsByKey.set(group.groupKey, group);
+      continue;
+    }
+    const reasonCodes = [
+      ...new Set([
+        ...existing.summary.reasonCodes,
+        ...group.summary.reasonCodes,
+      ]),
+    ];
+    groupsByKey.set(group.groupKey, {
+      ...existing,
+      technicalConfidence:
+        strengthRank(group.technicalConfidence) >
+        strengthRank(existing.technicalConfidence)
+          ? group.technicalConfidence
+          : existing.technicalConfidence,
+      strongLinkCount: Math.max(
+        existing.strongLinkCount,
+        group.strongLinkCount,
+      ),
+      supportLinkCount: Math.max(
+        existing.supportLinkCount,
+        group.supportLinkCount,
+      ),
+      summary: {
+        reasonCodes,
+        topFamilies: existing.summary.topFamilies,
+        denseBucket: existing.summary.denseBucket,
+      },
+    });
+  }
+  return [...groupsByKey.values()];
+}
+
 function isDirtyResponseLinkAnalysisJob(jobId: string): boolean {
   return jobId.includes(".dirty.");
 }
@@ -467,12 +561,14 @@ function buildCandidatePairs(
   maxCandidatePairs: number,
 ): CandidatePairBuildResult {
   const candidatePairs = new Set<string>();
+  const denseGroups: ResponseSuspicionGroupEvaluation[] = [];
   let skippedBucketCount = 0;
   let truncated = false;
   const sessionBuckets = new Map<string, string[]>();
   const respondentBuckets = new Map<string, string[]>();
   const uaBuckets = new Map<string, string[]>();
-  const strongSignalBuckets = new Map<string, string[]>();
+  const visitorIdBuckets = new Map<string, string[]>();
+  const v6Buckets = new Map<string, string[]>();
   const boundedSignalBuckets = new Map<string, string[]>();
 
   for (const response of responses) {
@@ -491,11 +587,11 @@ function buildCandidatePairs(
 
     for (const detail of response.fingerprintDetails) {
       if (!detail.componentValueHash.trim()) continue;
-      const isStrongSignal =
-        (detail.fingerprintType === "fingerprintjs" &&
-          detail.componentName === "visitorId") ||
-        (detail.fingerprintType === "telemetry" &&
-          detail.componentName === "v6");
+      const isVisitorIdSignal =
+        detail.fingerprintType === "fingerprintjs" &&
+        detail.componentName === "visitorId";
+      const isV6Signal =
+        detail.fingerprintType === "telemetry" && detail.componentName === "v6";
       const isBoundedSignal =
         (detail.fingerprintType === "telemetry" &&
           detail.componentName === "v4") ||
@@ -507,20 +603,46 @@ function buildCandidatePairs(
           "system",
           "screen",
         ].includes(detail.componentName);
-      if (!isStrongSignal && !isBoundedSignal) continue;
+      if (!isVisitorIdSignal && !isV6Signal && !isBoundedSignal) continue;
       const key = `${detail.fingerprintType}:${detail.componentName}:${detail.componentValueHash}`;
-      const buckets = isStrongSignal
-        ? strongSignalBuckets
-        : boundedSignalBuckets;
+      const buckets = isV6Signal
+        ? v6Buckets
+        : isVisitorIdSignal
+          ? visitorIdBuckets
+          : boundedSignalBuckets;
       pushBucketValue(buckets, key, response.id);
     }
   }
 
-  for (const buckets of [
-    sessionBuckets,
-    respondentBuckets,
-    strongSignalBuckets,
+  for (const { buckets, denseGroup } of [
+    {
+      buckets: sessionBuckets,
+      denseGroup: { reasonCode: "hard:session", strength: "HARD" as const },
+    },
+    {
+      buckets: v6Buckets,
+      denseGroup: {
+        reasonCode: "strong:telemetry:v6",
+        strength: "STRONG" as const,
+      },
+    },
   ]) {
+    for (const { responseIds } of sortedCandidateBuckets(buckets)) {
+      const result = addBucketPairs(candidatePairs, responseIds, {
+        denseGroup,
+        enforceCandidateLimit: false,
+        highConfidenceBucketPairLimit: HIGH_CONFIDENCE_BUCKET_PAIR_LIMIT,
+        maxCandidatePairs,
+      });
+      if (result.denseGroup) {
+        denseGroups.push(buildDenseSuspicionGroup(result.denseGroup));
+      }
+      skippedBucketCount += result.skippedBucketCount;
+      truncated = result.truncated || truncated;
+    }
+  }
+
+  for (const buckets of [respondentBuckets, visitorIdBuckets]) {
     for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
         enforceCandidateLimit: false,
@@ -543,7 +665,12 @@ function buildCandidatePairs(
     }
   }
 
-  return { candidatePairs, skippedBucketCount, truncated };
+  return {
+    candidatePairs,
+    denseGroups: mergeDenseSuspicionGroups(denseGroups),
+    skippedBucketCount,
+    truncated,
+  };
 }
 
 async function loadResponses(
@@ -706,7 +833,7 @@ async function persistResults(params: {
             strengthRank(link.strength) > strengthRank(current)
               ? link.strength
               : current,
-          "NONE",
+          group.strongLinkCount > 0 ? group.technicalConfidence : "NONE",
         );
         const strongestEvidence = memberLinks.reduce(
           (current, link) => Math.max(current, link.deviceEvidence),
@@ -767,12 +894,10 @@ async function persistResults(params: {
 /**
  * Builds and persists response-link shadow results for one form.
  *
- * Candidate generation keeps high-confidence session/respondent/visitor/v6
- * buckets complete while they fit the per-bucket safety bound. High-confidence
- * buckets that exceed that bound fail the replacement run instead of publishing
- * partial pair links. Lower-confidence device, v4, and user-agent buckets are
- * capped by `maxCandidatePairs`; buckets that exceed their bound are skipped in
- * a stable order and reported in completed-run metadata.
+ * Candidate generation keeps pair-link rows complete for every bucket it
+ * accepts. Oversized hard session and strong v6 buckets are persisted as dense
+ * groups instead of partial pair rows. Other oversized or pair-dense buckets
+ * are skipped at bucket boundaries and reported in completed-run metadata.
  */
 export async function analyzeResponseLinks(
   formId: string,
@@ -806,7 +931,7 @@ export async function analyzeResponseLinks(
     );
     const maxCandidatePairs =
       options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
-    const { candidatePairs, skippedBucketCount, truncated } =
+    const { candidatePairs, denseGroups, skippedBucketCount, truncated } =
       buildCandidatePairs(responses, maxCandidatePairs);
     const links: ResponsePairLinkEvaluation[] = [];
 
@@ -826,7 +951,7 @@ export async function analyzeResponseLinks(
     }
 
     throwIfAborted(options.signal);
-    const groups = buildResponseSuspicionGroups(links);
+    const groups = [...buildResponseSuspicionGroups(links), ...denseGroups];
     await persistResults({
       formId,
       runId,
