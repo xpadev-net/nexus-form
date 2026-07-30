@@ -4,12 +4,14 @@ import { FormResponseRowSchema } from "./form-row";
 
 export type {
   ResponseLinkAnalysisRecalculateResponse,
+  ResponseRelationGraphResponse,
   ResponseSuspicionGroupDetailResponse,
   ResponseSuspicionGroupListItem,
   ResponseSuspicionGroupsResponse,
 } from "@nexus-form/shared";
 export {
   ResponseLinkAnalysisRecalculateResponseSchema,
+  ResponseRelationGraphResponseSchema,
   ResponseSuspicionGroupDetailResponseSchema,
   ResponseSuspicionGroupListItemSchema,
   ResponseSuspicionGroupsResponseSchema,

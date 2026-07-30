@@ -247,6 +247,25 @@ vi.mock("@/components/forms/response-filter", () => ({
     );
   },
 }));
+vi.mock("@/components/forms/response-relation-graph", () => ({
+  ResponseRelationGraph: ({
+    onSelectResponse,
+    selectedResponseId,
+  }: {
+    onSelectResponse: (responseId: string) => void;
+    selectedResponseId: string | null;
+  }) => (
+    <section data-testid="response-relation-graph">
+      <span>{selectedResponseId ?? "none"}</span>
+      <button
+        type="button"
+        onClick={() => onSelectResponse("response-from-graph")}
+      >
+        graph node
+      </button>
+    </section>
+  ),
+}));
 vi.mock("@/components/ui/alert-dialog", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   const DialogContext = React.createContext<{
@@ -489,6 +508,40 @@ describe("FormResponsesContent accessibility", () => {
     expect(
       container.querySelector('button[aria-label="回答詳細を閉じる"]'),
     ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("switches to the relation graph and opens response detail from graph selection", () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const graphButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("グラフ"),
+    );
+    expect(graphButton).toBeDefined();
+
+    act(() => {
+      graphButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector("[data-testid='response-relation-graph']"),
+    ).not.toBeNull();
+
+    const graphNodeButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent === "graph node");
+
+    act(() => {
+      graphNodeButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(
+      container.querySelector("[data-testid='response-detail']")?.textContent,
+    ).toBe("response-from-graph");
 
     act(() => root.unmount());
   });

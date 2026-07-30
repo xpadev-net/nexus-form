@@ -122,6 +122,9 @@ export function ResponseSuspicionGroups({
       await queryClient.invalidateQueries({
         queryKey: ["responseSuspicionGroups", formId],
       });
+      await queryClient.invalidateQueries({
+        queryKey: ["responseRelationGraph", formId],
+      });
       if (selectedGroupKey !== null) {
         await queryClient.invalidateQueries({
           queryKey: ["responseSuspicionGroupDetail", formId, selectedGroupKey],

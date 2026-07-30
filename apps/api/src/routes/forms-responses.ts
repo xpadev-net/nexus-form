@@ -75,6 +75,7 @@ import {
   ResponseIdsResponseSchema,
   ResponseLinkAnalysisRecalculateResponseSchema,
   ResponseMutationResponseSchema,
+  ResponseRelationGraphResponseSchema,
   ResponseSuspicionGroupDetailResponseSchema,
   ResponseSuspicionGroupsResponseSchema,
   ResponsesListResponseSchema,
@@ -109,6 +110,8 @@ const RESPONSE_EXPORT_ROW_LIMIT = 5000;
 const RESPONSE_SUSPICION_GROUP_LIST_LIMIT = 100;
 const RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT = 200;
 const RESPONSE_SUSPICION_GROUP_LINK_LIMIT = 1000;
+const RESPONSE_RELATION_GRAPH_NODE_LIMIT = 300;
+const RESPONSE_RELATION_GRAPH_EDGE_LIMIT = 1000;
 const VALIDATION_REVALIDATION_ENQUEUE_CONCURRENCY = 5;
 const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = RESPONSE_EXPORT_ROW_LIMIT;
 
@@ -616,6 +619,21 @@ type ResponseSuspicionGroupListRow = {
 type LiveResponseSuspicionGroupListRow = ResponseSuspicionGroupListRow & {
   aggregate: LiveResponseSuspicionGroupAggregate;
 };
+
+const responseLinkStrengthRanks = {
+  NONE: 0,
+  SUPPORT: 1,
+  STRONG: 2,
+  HARD: 3,
+} as const;
+
+function strongerResponseLinkStrength<
+  T extends "HARD" | "NONE" | "STRONG" | "SUPPORT",
+>(left: T, right: T): T {
+  return responseLinkStrengthRanks[left] >= responseLinkStrengthRanks[right]
+    ? left
+    : right;
+}
 
 async function getLatestCompletedResponseLinkRun(
   formId: string,
@@ -2744,6 +2762,225 @@ export const formsResponsesRouter = createHonoApp()
         hasNextMembers:
           memberRows.length > RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT,
         hasNextLinks: rawLinkRows.length > RESPONSE_SUSPICION_GROUP_LINK_LIMIT,
+      }),
+    );
+  })
+  .get("/:id/responses/relation-graph", async (c) => {
+    const formId = c.req.param("id");
+    const run = await getLatestCompletedResponseLinkRun(formId);
+    if (!run) {
+      return c.json(
+        ResponseRelationGraphResponseSchema.parse({
+          run: null,
+          nodes: [],
+          edges: [],
+          denseClusters: [],
+          hasNextNodes: false,
+          hasNextEdges: false,
+        }),
+      );
+    }
+
+    const rawLinkRows = await db
+      .select({
+        responseIdA: responsePairLink.responseIdA,
+        responseIdB: responsePairLink.responseIdB,
+        strength: responsePairLink.strength,
+        deviceEvidence: responsePairLink.deviceEvidence,
+        v4Support: responsePairLink.v4Support,
+        v6Strong: responsePairLink.v6Strong,
+        stateSupport: responsePairLink.stateSupport,
+        breakdownJson: responsePairLink.breakdownJson,
+      })
+      .from(responsePairLink)
+      .where(eq(responsePairLink.runId, run.id))
+      .orderBy(
+        desc(responsePairLink.strength),
+        desc(responsePairLink.deviceEvidence),
+        asc(responsePairLink.responseIdA),
+        asc(responsePairLink.responseIdB),
+      )
+      .limit(RESPONSE_RELATION_GRAPH_EDGE_LIMIT + 1);
+    const linkRows = rawLinkRows.slice(0, RESPONSE_RELATION_GRAPH_EDGE_LIMIT);
+    const responseIds = new Set<string>();
+    for (const link of linkRows) {
+      responseIds.add(link.responseIdA);
+      responseIds.add(link.responseIdB);
+    }
+
+    const groupRows = await db
+      .select({
+        id: responseSuspicionGroup.id,
+        groupKey: responseSuspicionGroup.groupKey,
+        technicalConfidence: responseSuspicionGroup.technicalConfidence,
+        responseCount: responseSuspicionGroup.responseCount,
+        summaryJson: responseSuspicionGroup.summaryJson,
+      })
+      .from(responseSuspicionGroup)
+      .where(eq(responseSuspicionGroup.runId, run.id))
+      .orderBy(
+        desc(responseSuspicionGroup.responseCount),
+        desc(responseSuspicionGroup.technicalConfidence),
+        asc(responseSuspicionGroup.id),
+      )
+      .limit(RESPONSE_SUSPICION_GROUP_LIST_LIMIT);
+
+    const denseGroupRows = groupRows.flatMap((group) => {
+      const denseBucket = parseLinkSummary(group.summaryJson).denseBucket;
+      return denseBucket ? [{ ...group, denseBucket }] : [];
+    });
+    const denseGroupIds = denseGroupRows.map((group) => group.id);
+    const denseMemberRows =
+      denseGroupIds.length > 0
+        ? await db
+            .select({
+              groupId: responseSuspicionGroupMember.groupId,
+              responseId: responseSuspicionGroupMember.responseId,
+            })
+            .from(responseSuspicionGroupMember)
+            .where(inArray(responseSuspicionGroupMember.groupId, denseGroupIds))
+            .orderBy(
+              asc(responseSuspicionGroupMember.groupId),
+              asc(responseSuspicionGroupMember.responseId),
+            )
+            .limit(RESPONSE_RELATION_GRAPH_NODE_LIMIT + 1)
+        : [];
+    const denseMembersByGroupId = new Map<string, string[]>();
+    for (const member of denseMemberRows.slice(
+      0,
+      RESPONSE_RELATION_GRAPH_NODE_LIMIT,
+    )) {
+      const members = denseMembersByGroupId.get(member.groupId) ?? [];
+      members.push(member.responseId);
+      denseMembersByGroupId.set(member.groupId, members);
+      responseIds.add(member.responseId);
+    }
+
+    const visibleResponseIds = [...responseIds].slice(
+      0,
+      RESPONSE_RELATION_GRAPH_NODE_LIMIT,
+    );
+    const visibleResponseIdSet = new Set(visibleResponseIds);
+    const responseRows =
+      visibleResponseIds.length > 0
+        ? await db
+            .select({
+              id: formResponse.id,
+              submittedAt: formResponse.submittedAt,
+              respondentUuid: formResponse.respondentUuid,
+            })
+            .from(formResponse)
+            .where(inArray(formResponse.id, visibleResponseIds))
+        : [];
+    const responseRowsById = new Map(
+      responseRows.map((response) => [response.id, response] as const),
+    );
+
+    const strongestByResponseId = new Map<
+      string,
+      {
+        strongestEvidence: number;
+        strongestStrength: (typeof linkRows)[number]["strength"];
+      }
+    >();
+    for (const link of linkRows) {
+      for (const responseId of [link.responseIdA, link.responseIdB]) {
+        const current = strongestByResponseId.get(responseId) ?? {
+          strongestEvidence: 0,
+          strongestStrength: "NONE" as const,
+        };
+        strongestByResponseId.set(responseId, {
+          strongestEvidence: Math.max(
+            current.strongestEvidence,
+            link.deviceEvidence,
+          ),
+          strongestStrength: strongerResponseLinkStrength(
+            current.strongestStrength,
+            link.strength,
+          ),
+        });
+      }
+    }
+
+    const denseClusters = denseGroupRows
+      .map((group) => {
+        const responseIdsForGroup = [
+          ...new Set(denseMembersByGroupId.get(group.id) ?? []),
+        ].filter((responseId) => visibleResponseIdSet.has(responseId));
+        const pairCount =
+          group.denseBucket.pairCount ??
+          (responseIdsForGroup.length * (responseIdsForGroup.length - 1)) / 2;
+        for (const responseId of responseIdsForGroup) {
+          const current = strongestByResponseId.get(responseId) ?? {
+            strongestEvidence: 0,
+            strongestStrength: "NONE" as const,
+          };
+          strongestByResponseId.set(responseId, {
+            strongestEvidence: current.strongestEvidence,
+            strongestStrength: strongerResponseLinkStrength(
+              current.strongestStrength,
+              group.denseBucket.strength,
+            ),
+          });
+        }
+        return {
+          id: group.groupKey,
+          responseIds: responseIdsForGroup,
+          strength: group.denseBucket.strength,
+          reasonCode: group.denseBucket.reasonCode,
+          pairCount,
+        };
+      })
+      .filter((cluster) => cluster.responseIds.length >= 2);
+
+    return c.json(
+      ResponseRelationGraphResponseSchema.parse({
+        run: {
+          ...run,
+          completedAt: run.completedAt?.toISOString() ?? null,
+        },
+        nodes: visibleResponseIds.flatMap((responseId) => {
+          const response = responseRowsById.get(responseId);
+          if (!response) return [];
+          const strongest = strongestByResponseId.get(response.id) ?? {
+            strongestEvidence: 0,
+            strongestStrength: "NONE" as const,
+          };
+          return [
+            {
+              responseId: response.id,
+              submittedAt: response.submittedAt.toISOString(),
+              respondentUuid: response.respondentUuid,
+              strongestStrength: strongest.strongestStrength,
+              strongestEvidence: strongest.strongestEvidence,
+            },
+          ];
+        }),
+        edges: linkRows
+          .filter(
+            (link) =>
+              visibleResponseIdSet.has(link.responseIdA) &&
+              visibleResponseIdSet.has(link.responseIdB),
+          )
+          .map((link) => {
+            const breakdown = parsePairBreakdown(link.breakdownJson);
+            return {
+              responseIdA: link.responseIdA,
+              responseIdB: link.responseIdB,
+              strength: link.strength,
+              deviceEvidence: link.deviceEvidence,
+              v4Support: link.v4Support,
+              v6Strong: link.v6Strong,
+              stateSupport: link.stateSupport,
+              reasonCodes: breakdown.reasonCodes,
+              familyContributions: breakdown.familyContributions,
+            };
+          }),
+        denseClusters,
+        hasNextNodes:
+          responseIds.size > RESPONSE_RELATION_GRAPH_NODE_LIMIT ||
+          denseMemberRows.length > RESPONSE_RELATION_GRAPH_NODE_LIMIT,
+        hasNextEdges: rawLinkRows.length > RESPONSE_RELATION_GRAPH_EDGE_LIMIT,
       }),
     );
   })
