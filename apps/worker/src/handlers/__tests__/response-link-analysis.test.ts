@@ -335,6 +335,34 @@ describe("analyzeResponseLinks", () => {
     );
   });
 
+  it("skips oversized high-confidence buckets before materializing too many pairs", async () => {
+    mocks.responseRows = Array.from({ length: 317 }, (_, index) => ({
+      id: `response-${index.toString().padStart(3, "0")}`,
+      sessionId: "same-session",
+      respondentUuid: `respondent-${index}`,
+      userAgent: null,
+    }));
+
+    const result = await analyzeResponseLinks("form-1");
+
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(0);
+    const pairInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responsePairLink",
+    );
+    expect(pairInsert).toBeUndefined();
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadataJson: expect.objectContaining({
+          candidatePairLimitExceeded: true,
+          skippedCandidateBucketCount: 1,
+        }),
+        status: "COMPLETED",
+      }),
+    );
+  });
+
   it("completes the run and skips lower-confidence buckets that would exceed the candidate cap", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,

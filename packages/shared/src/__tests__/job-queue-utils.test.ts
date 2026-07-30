@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { addJobWithCleanup } from "../job-queue-utils";
 
 describe("addJobWithCleanup", () => {
-  it("returns delayed-job-state-changed for BullMQ numeric JobNotInState errors", async () => {
+  it("adds and returns delayed-job-state-changed for BullMQ numeric JobNotInState errors", async () => {
     const changeDelay = vi.fn(async () => {
       throw Object.assign(new Error("state changed"), { code: -3 });
     });
@@ -27,6 +27,10 @@ describe("addJobWithCleanup", () => {
         jobName: "response-submitted",
       }),
     ).resolves.toEqual({ outcome: "delayed-job-state-changed" });
-    expect(queue.add).not.toHaveBeenCalled();
+    expect(queue.add).toHaveBeenCalledWith(
+      "response-submitted",
+      { formId: "form-1" },
+      { delay: 10_000, jobId: "response-link-analysis.form-1" },
+    );
   });
 });

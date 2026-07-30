@@ -235,6 +235,21 @@ export async function enqueueResponseLinkAnalysisJob(params: {
       jobId: targetJobId,
       jobName: params.reason,
     });
+  const enqueueOverflowOrDirty =
+    async (): Promise<ResponseLinkAnalysisEnqueueResult> => {
+      const currentOverflowJob = await queue.getJob(overflowJobId);
+      overflowState = await currentOverflowJob?.getState();
+      if (isRunningOrPendingJobState(overflowState)) {
+        await markResponseLinkAnalysisDirty(queue, jobData);
+        return { enqueued: false, status: "dirty" };
+      }
+      const overflowResult = await enqueueWithJobId(overflowJobId);
+      if (overflowResult.outcome === "delayed-job-state-changed") {
+        await markResponseLinkAnalysisDirty(queue, jobData);
+        return { enqueued: false, status: "dirty" };
+      }
+      return { enqueued: true, status: "enqueued" };
+    };
   const stateForJobId = (targetJobId: string): unknown => {
     if (targetJobId === primaryJobId) return primaryState;
     if (targetJobId === followUpJobId) return followUpState;
@@ -258,14 +273,12 @@ export async function enqueueResponseLinkAnalysisJob(params: {
   }
 
   const fallbackJobId = jobId === primaryJobId ? followUpJobId : primaryJobId;
+  if (isRunningOrPendingJobState(stateForJobId(fallbackJobId))) {
+    return enqueueOverflowOrDirty();
+  }
   const fallbackResult = await enqueueWithJobId(fallbackJobId);
   if (fallbackResult.outcome === "delayed-job-state-changed") {
-    const overflowResult = await enqueueWithJobId(overflowJobId);
-    if (overflowResult.outcome === "delayed-job-state-changed") {
-      await markResponseLinkAnalysisDirty(queue, jobData);
-      return { enqueued: false, status: "dirty" };
-    }
-    return { enqueued: true, status: "enqueued" };
+    return enqueueOverflowOrDirty();
   }
   return resultForJobId(fallbackJobId);
 }

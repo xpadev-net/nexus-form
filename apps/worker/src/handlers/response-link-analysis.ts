@@ -33,6 +33,9 @@ import { getPublisherConnectionOptions, redisConnection } from "../lib/redis";
 const CANDIDATE_BUCKET_LIMIT = 200;
 const DEFAULT_ANALYSIS_RESPONSE_LIMIT = 5000;
 const DEFAULT_MAX_CANDIDATE_PAIRS = 50_000;
+const UNCAPPED_CANDIDATE_BUCKET_LIMIT = Math.floor(
+  (1 + Math.sqrt(1 + 8 * DEFAULT_MAX_CANDIDATE_PAIRS)) / 2,
+);
 const FINGERPRINT_RESPONSE_ID_BATCH_SIZE = 1000;
 const INSERT_CHUNK_SIZE = 500;
 const LOCK_ACQUIRE_TIMEOUT_MS = 30 * 60_000;
@@ -268,6 +271,7 @@ function addBucketPairs(
   candidatePairs: Set<string>,
   responseIds: Iterable<string>,
   options: {
+    bucketLimitExceededIsTruncated?: boolean;
     bucketLimit?: number;
     enforceCandidateLimit?: boolean;
     maxCandidatePairs: number;
@@ -276,7 +280,10 @@ function addBucketPairs(
   const ids = [...new Set(responseIds)].sort();
   if (ids.length < 2) return { skippedBucketCount: 0, truncated: false };
   if (options.bucketLimit !== undefined && ids.length > options.bucketLimit) {
-    return { skippedBucketCount: 1, truncated: false };
+    return {
+      skippedBucketCount: 1,
+      truncated: options.bucketLimitExceededIsTruncated ?? false,
+    };
   }
   const newPairKeys: string[] = [];
   for (let i = 0; i < ids.length; i += 1) {
@@ -400,6 +407,8 @@ function buildCandidatePairs(
   ]) {
     for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
+        bucketLimit: UNCAPPED_CANDIDATE_BUCKET_LIMIT,
+        bucketLimitExceededIsTruncated: true,
         enforceCandidateLimit: false,
         maxCandidatePairs,
       });
@@ -632,9 +641,10 @@ async function persistResults(params: {
  * Builds and persists response-link shadow results for one form.
  *
  * Candidate generation keeps high-confidence session/respondent/visitor/v6
- * buckets complete. Lower-confidence device, v4, and user-agent buckets are
- * capped by `maxCandidatePairs`; buckets that would exceed the cap are skipped
- * in a stable order and reported in completed-run metadata.
+ * buckets complete while they fit the per-bucket safety bound. Lower-confidence
+ * device, v4, and user-agent buckets are capped by `maxCandidatePairs`; buckets
+ * that exceed their bound are skipped in a stable order and reported in
+ * completed-run metadata.
  */
 export async function analyzeResponseLinks(
   formId: string,

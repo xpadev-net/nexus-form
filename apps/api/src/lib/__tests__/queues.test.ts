@@ -304,6 +304,114 @@ describe("queues", () => {
     );
   });
 
+  it("uses overflow when follow-up activation races after primary is active", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    const changeDelay = vi.fn(async () => {
+      throw new Error("Job is not in the delayed state");
+    });
+    const followUpGetState = vi
+      .fn()
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("active");
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (jobId === "response-link-analysis.form-1") {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      if (jobId === "response-link-analysis.form-1.follow-up") {
+        return {
+          changeDelay,
+          getState: followUpGetState,
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    const result = await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(result).toEqual({ enqueued: true, status: "enqueued" });
+    expect(changeDelay).toHaveBeenCalledWith(10_000);
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      {
+        delay: 10_000,
+        jobId: "response-link-analysis.form-1.follow-up",
+      },
+    );
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      { delay: 10_000, jobId: "response-link-analysis.form-1.overflow" },
+    );
+  });
+
+  it("marks dirty when follow-up activation races and overflow is already active", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-29T00:00:05.000Z"));
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    const changeDelay = vi.fn(async () => {
+      throw new Error("Job is not in the delayed state");
+    });
+    const followUpGetState = vi
+      .fn()
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("active");
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (jobId === "response-link-analysis.form-1") {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      if (jobId === "response-link-analysis.form-1.follow-up") {
+        return {
+          changeDelay,
+          getState: followUpGetState,
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      if (jobId === "response-link-analysis.form-1.overflow") {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    const result = await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(result).toEqual({ enqueued: false, status: "dirty" });
+    expect(mocks.redisSet).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+      "1",
+      "EX",
+      86_400,
+    );
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      {
+        delay: 10_000,
+        jobId: "response-link-analysis.form-1.dirty.178528321",
+      },
+    );
+  });
+
   it("uses an overflow response link analysis job when primary and follow-up are both active", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];

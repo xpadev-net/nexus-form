@@ -72,6 +72,7 @@ export async function addJobWithCleanup<TJobData>(
 ): Promise<AddJobWithCleanupResult> {
   const existingJob = await queue.getJob(params.jobId);
   if (existingJob) {
+    let delayedJobStateChanged = false;
     const state = await existingJob.getState();
     if (state === "failed" || state === "completed") {
       try {
@@ -95,9 +96,17 @@ export async function addJobWithCleanup<TJobData>(
         if ((await existingJob.getState()) === "delayed") {
           throw error;
         }
-        return { outcome: "delayed-job-state-changed" };
+        delayedJobStateChanged = true;
       }
     }
+
+    await queue.add(params.jobName, params.jobData, {
+      ...(params.delay !== undefined ? { delay: params.delay } : {}),
+      jobId: params.jobId,
+    });
+    return {
+      outcome: delayedJobStateChanged ? "delayed-job-state-changed" : "added",
+    };
   }
 
   await queue.add(params.jobName, params.jobData, {
