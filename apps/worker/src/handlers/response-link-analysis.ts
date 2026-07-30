@@ -26,7 +26,7 @@ import {
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
 import { type DefaultJobOptions, type Job, Queue } from "bullmq";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import Redis from "ioredis";
 import { getPublisherConnectionOptions, redisConnection } from "../lib/redis";
 
@@ -670,6 +670,7 @@ async function persistResults(params: {
     }
 
     throwIfAborted(signal);
+    const completedAt = new Date();
     await tx
       .update(responseLinkAnalysisRun)
       .set({
@@ -677,13 +678,24 @@ async function persistResults(params: {
         statsVersion,
         populationSize,
         metadataJson,
-        completedAt: new Date(),
+        completedAt,
         errorMessage: null,
       })
       .where(
         and(
           eq(responseLinkAnalysisRun.id, runId),
           eq(responseLinkAnalysisRun.status, "PROCESSING"),
+        ),
+      );
+    await tx
+      .update(responseLinkAnalysisRun)
+      .set({ status: "STALE" })
+      .where(
+        and(
+          eq(responseLinkAnalysisRun.formId, formId),
+          eq(responseLinkAnalysisRun.modelVersion, RESPONSE_LINK_MODEL_VERSION),
+          eq(responseLinkAnalysisRun.status, "COMPLETED"),
+          ne(responseLinkAnalysisRun.id, runId),
         ),
       );
   });

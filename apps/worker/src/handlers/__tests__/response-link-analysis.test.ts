@@ -13,6 +13,11 @@ const mocks = vi.hoisted(() => ({
   txInsert: vi.fn(),
   txUpdate: vi.fn(),
   txInsertedRows: [] as Array<{ table: unknown; values: unknown }>,
+  txUpdatedRows: [] as Array<{
+    table: unknown;
+    values: unknown;
+    condition: unknown;
+  }>,
   queueClose: vi.fn(async () => undefined),
   queueAdd: vi.fn(async () => undefined),
   queueGetJob: vi.fn(async (): Promise<unknown> => null),
@@ -118,6 +123,11 @@ vi.mock("drizzle-orm", () => ({
     type: "inArray",
     values,
   })),
+  ne: vi.fn((column: unknown, value: unknown) => ({
+    column,
+    type: "ne",
+    value,
+  })),
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings,
     type: "sql",
@@ -176,11 +186,14 @@ function setupDbMocks() {
       return { table, values };
     }),
   }));
-  mocks.txUpdate.mockReturnValue({
-    set: vi.fn(() => ({
-      where: vi.fn().mockResolvedValue(undefined),
+  mocks.txUpdate.mockImplementation((table: unknown) => ({
+    set: vi.fn((values: unknown) => ({
+      where: vi.fn(async (condition: unknown) => {
+        mocks.txUpdatedRows.push({ table, values, condition });
+        return undefined;
+      }),
     })),
-  });
+  }));
   mocks.dbUpdate.mockImplementation((table: unknown) => ({
     set: vi.fn(() => ({
       where: vi.fn(async () => {
@@ -205,6 +218,7 @@ beforeEach(() => {
   mocks.dbDeletedTables = [];
   mocks.dbUpdatedTables = [];
   mocks.txInsertedRows = [];
+  mocks.txUpdatedRows = [];
   mocks.queueAdd.mockClear();
   mocks.queueClose.mockClear();
   mocks.queueGetJob.mockClear();
@@ -261,6 +275,35 @@ describe("analyzeResponseLinks", () => {
 
     expect(result.linkCount).toBe(1);
     expect(result.groupCount).toBe(1);
+    expect(mocks.txUpdatedRows).toContainEqual({
+      table: expect.objectContaining({ id: "responseLinkAnalysisRun.id" }),
+      values: { status: "STALE" },
+      condition: expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            column: "responseLinkAnalysisRun.formId",
+            type: "eq",
+            value: "form-1",
+          },
+          {
+            column: "responseLinkAnalysisRun.modelVersion",
+            type: "eq",
+            value: "response-link-v2-rarity-shadow",
+          },
+          {
+            column: "responseLinkAnalysisRun.status",
+            type: "eq",
+            value: "COMPLETED",
+          },
+          {
+            column: "responseLinkAnalysisRun.id",
+            type: "ne",
+            value: result.runId,
+          },
+        ]),
+        type: "and",
+      }),
+    });
     const pairInsert = mocks.txInsertedRows.find(
       (entry) => entry.table === "responsePairLink",
     );

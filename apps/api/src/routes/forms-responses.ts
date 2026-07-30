@@ -629,21 +629,6 @@ async function getLatestCompletedResponseLinkRun(
   };
 }
 
-async function markResponseLinkAnalysisRunsStale(
-  formId: string,
-): Promise<void> {
-  await db
-    .update(responseLinkAnalysisRun)
-    .set({ status: "STALE" })
-    .where(
-      and(
-        eq(responseLinkAnalysisRun.formId, formId),
-        eq(responseLinkAnalysisRun.modelVersion, RESPONSE_LINK_MODEL_VERSION),
-        eq(responseLinkAnalysisRun.status, "COMPLETED"),
-      ),
-    );
-}
-
 async function enqueueDeletionResponseLinkAnalysis(
   formId: string,
 ): Promise<void> {
@@ -651,7 +636,6 @@ async function enqueueDeletionResponseLinkAnalysis(
     formId,
     reason: "response-deleted",
   });
-  await markResponseLinkAnalysisRunsStale(formId);
 }
 
 async function getLiveResponseSuspicionGroupAggregates(

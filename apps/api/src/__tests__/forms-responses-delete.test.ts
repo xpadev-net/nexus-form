@@ -304,7 +304,6 @@ describe("response deletion API", () => {
     );
     const router = await importRouter();
     const { enqueueResponseLinkAnalysisJob } = await import("../lib/queues");
-    const { RESPONSE_LINK_MODEL_VERSION } = await import("@nexus-form/shared");
 
     const res = await router.request("/form-1/responses/response-1", {
       method: "DELETE",
@@ -338,26 +337,12 @@ describe("response deletion API", () => {
       tableName: "formResponse",
       condition: { op: "eq", left: "formResponse.id", right: "response-1" },
     });
-    expect(mocks.whereConditions).toContainEqual({
-      tableName: "responseLinkAnalysisRun",
-      values: { status: "STALE" },
-      condition: {
-        op: "and",
-        conditions: [
-          { op: "eq", left: "responseLinkAnalysisRun.formId", right: "form-1" },
-          {
-            op: "eq",
-            left: "responseLinkAnalysisRun.modelVersion",
-            right: RESPONSE_LINK_MODEL_VERSION,
-          },
-          {
-            op: "eq",
-            left: "responseLinkAnalysisRun.status",
-            right: "COMPLETED",
-          },
-        ],
-      },
-    });
+    expect(mocks.whereConditions).not.toContainEqual(
+      expect.objectContaining({
+        tableName: "responseLinkAnalysisRun",
+        values: { status: "STALE" },
+      }),
+    );
     expect(enqueueResponseLinkAnalysisJob).toHaveBeenCalledWith({
       formId: "form-1",
       reason: "response-deleted",
