@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   addJobWithCleanup,
   buildResponseLinkAnalysisDirtyJobId,
@@ -158,7 +159,7 @@ async function markResponseLinkAnalysisDirty(
 ): Promise<void> {
   await getResponseLinkAnalysisDirtyClient().set(
     getResponseLinkAnalysisDirtyKey(jobData.formId),
-    "1",
+    randomUUID(),
     "EX",
     RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
   );

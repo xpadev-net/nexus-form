@@ -33,9 +33,6 @@ import { getPublisherConnectionOptions, redisConnection } from "../lib/redis";
 const CANDIDATE_BUCKET_LIMIT = 200;
 const DEFAULT_ANALYSIS_RESPONSE_LIMIT = 5000;
 const DEFAULT_MAX_CANDIDATE_PAIRS = 50_000;
-const UNCAPPED_CANDIDATE_BUCKET_LIMIT = Math.floor(
-  (1 + Math.sqrt(1 + 8 * DEFAULT_MAX_CANDIDATE_PAIRS)) / 2,
-);
 const FINGERPRINT_RESPONSE_ID_BATCH_SIZE = 1000;
 const INSERT_CHUNK_SIZE = 500;
 const LOCK_ACQUIRE_TIMEOUT_MS = 30 * 60_000;
@@ -131,18 +128,29 @@ export async function closeResponseLinkAnalysisResources(): Promise<void> {
 
 async function consumeResponseLinkAnalysisDirty(
   formId: string,
+  marker?: string,
 ): Promise<boolean> {
-  const deleted = await getResponseLinkAnalysisDirtyClient().del(
-    getResponseLinkAnalysisDirtyKey(formId),
-  );
+  const key = getResponseLinkAnalysisDirtyKey(formId);
+  const deleted =
+    marker === undefined
+      ? await getResponseLinkAnalysisDirtyClient().del(key)
+      : Number(
+          await getResponseLinkAnalysisDirtyClient().eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            key,
+            marker,
+          ),
+        );
   return deleted > 0;
 }
 
-async function hasResponseLinkAnalysisDirty(formId: string): Promise<boolean> {
-  const exists = await getResponseLinkAnalysisDirtyClient().exists(
+async function getResponseLinkAnalysisDirtyMarker(
+  formId: string,
+): Promise<string | null> {
+  return getResponseLinkAnalysisDirtyClient().get(
     getResponseLinkAnalysisDirtyKey(formId),
   );
-  return exists > 0;
 }
 
 async function enqueueDirtyResponseLinkFollowUp(formId: string): Promise<void> {
@@ -279,7 +287,6 @@ function addBucketPairs(
   responseIds: Iterable<string>,
   options: {
     bucketLimitExceededIsTruncated?: boolean;
-    connectOversizedBucket?: boolean;
     bucketLimit?: number;
     enforceCandidateLimit?: boolean;
     maxCandidatePairs: number;
@@ -288,15 +295,6 @@ function addBucketPairs(
   const ids = [...new Set(responseIds)].sort();
   if (ids.length < 2) return { skippedBucketCount: 0, truncated: false };
   if (options.bucketLimit !== undefined && ids.length > options.bucketLimit) {
-    if (options.connectOversizedBucket) {
-      for (let index = 1; index < ids.length; index += 1) {
-        const left = ids[index - 1];
-        const right = ids[index];
-        if (!left || !right) continue;
-        candidatePairs.add(pairKey(left, right));
-      }
-      return { skippedBucketCount: 0, truncated: true };
-    }
     return {
       skippedBucketCount: 1,
       truncated: options.bucketLimitExceededIsTruncated ?? false,
@@ -424,9 +422,6 @@ function buildCandidatePairs(
   ]) {
     for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
-        bucketLimit: UNCAPPED_CANDIDATE_BUCKET_LIMIT,
-        bucketLimitExceededIsTruncated: true,
-        connectOversizedBucket: true,
         enforceCandidateLimit: false,
         maxCandidatePairs,
       });
@@ -822,9 +817,10 @@ export async function handleResponseLinkAnalysis(
       return analyzeResponseLinks(data.formId, { signal });
     },
   );
-  if (await hasResponseLinkAnalysisDirty(data.formId)) {
+  const dirtyMarker = await getResponseLinkAnalysisDirtyMarker(data.formId);
+  if (dirtyMarker !== null) {
     await enqueueDirtyResponseLinkFollowUp(data.formId);
-    await consumeResponseLinkAnalysisDirty(data.formId);
+    await consumeResponseLinkAnalysisDirty(data.formId, dirtyMarker);
   }
   return result;
 }

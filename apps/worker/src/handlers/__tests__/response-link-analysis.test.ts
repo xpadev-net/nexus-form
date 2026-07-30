@@ -17,7 +17,8 @@ const mocks = vi.hoisted(() => ({
   queueAdd: vi.fn(async () => undefined),
   queueGetJob: vi.fn(async () => null),
   redisDel: vi.fn(async () => 0),
-  redisExists: vi.fn(async () => 0),
+  redisEval: vi.fn(async () => 0),
+  redisGet: vi.fn(async () => null as string | null),
   redisQuit: vi.fn(async () => "OK"),
   queueOptions: [] as unknown[],
   staleRunRows: [] as Array<{ id: string }>,
@@ -52,7 +53,8 @@ vi.mock("ioredis", () => ({
   default: vi.fn(function redisMock() {
     return {
       del: mocks.redisDel,
-      exists: mocks.redisExists,
+      eval: mocks.redisEval,
+      get: mocks.redisGet,
       quit: mocks.redisQuit,
     };
   }),
@@ -210,8 +212,10 @@ beforeEach(() => {
   mocks.redisQuit.mockClear();
   mocks.redisDel.mockReset();
   mocks.redisDel.mockResolvedValue(0);
-  mocks.redisExists.mockReset();
-  mocks.redisExists.mockResolvedValue(0);
+  mocks.redisEval.mockReset();
+  mocks.redisEval.mockResolvedValue(0);
+  mocks.redisGet.mockReset();
+  mocks.redisGet.mockResolvedValue(null);
   setupDbMocks();
 });
 
@@ -339,7 +343,7 @@ describe("analyzeResponseLinks", () => {
     );
   });
 
-  it("connects oversized high-confidence buckets without materializing every pair", async () => {
+  it("persists every pair in oversized high-confidence buckets", async () => {
     mocks.responseRows = Array.from({ length: 317 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
@@ -349,17 +353,17 @@ describe("analyzeResponseLinks", () => {
 
     const result = await analyzeResponseLinks("form-1");
 
-    expect(result.linkCount).toBe(316);
+    expect(result.linkCount).toBe(50_086);
     expect(result.groupCount).toBe(1);
     const pairInsertValues = mocks.txInsertedRows
       .filter((entry) => entry.table === "responsePairLink")
       .flatMap((entry) => (Array.isArray(entry.values) ? entry.values : []));
-    expect(pairInsertValues).toHaveLength(316);
+    expect(pairInsertValues).toHaveLength(50_086);
     const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         metadataJson: expect.objectContaining({
-          candidatePairLimitExceeded: true,
+          candidatePairLimitExceeded: false,
           skippedCandidateBucketCount: 0,
         }),
         status: "COMPLETED",
@@ -504,7 +508,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("queues a fixed follow-up after consuming a dirty response-link marker", async () => {
-    mocks.redisExists.mockResolvedValueOnce(1);
+    mocks.redisGet.mockResolvedValueOnce("marker-1");
 
     const result = await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "manual" },
@@ -512,9 +516,15 @@ describe("handleResponseLinkAnalysis", () => {
     } as Job<ResponseLinkAnalysisJobData>);
 
     expect(result.linkCount).toBe(0);
-    expect(mocks.redisDel).toHaveBeenCalledTimes(2);
+    expect(mocks.redisDel).toHaveBeenCalledTimes(1);
     expect(mocks.redisDel).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
+    );
+    expect(mocks.redisEval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('get', KEYS[1]) == ARGV[1]"),
+      1,
+      "response-link-analysis:dirty:form-1",
+      "marker-1",
     );
     expect(mocks.queueAdd).toHaveBeenCalledWith(
       "response-submitted",
@@ -527,7 +537,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("uses response-link retry defaults for dirty follow-up queueing", async () => {
-    mocks.redisExists.mockResolvedValueOnce(1);
+    mocks.redisGet.mockResolvedValueOnce("marker-1");
 
     await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "manual" },
@@ -548,7 +558,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("closes response-link helper queue and Redis resources", async () => {
-    mocks.redisExists.mockResolvedValueOnce(1);
+    mocks.redisGet.mockResolvedValueOnce("marker-1");
 
     await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "manual" },
@@ -561,7 +571,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("leaves dirty marker when fixed follow-up queueing fails", async () => {
-    mocks.redisExists.mockResolvedValueOnce(1);
+    mocks.redisGet.mockResolvedValueOnce("marker-1");
     mocks.queueAdd.mockRejectedValueOnce(new Error("queue unavailable"));
 
     await expect(
@@ -575,6 +585,7 @@ describe("handleResponseLinkAnalysis", () => {
     expect(mocks.redisDel).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
     );
+    expect(mocks.redisEval).not.toHaveBeenCalled();
   });
 
   it("runs dirty rescue jobs even when the marker was already consumed", async () => {

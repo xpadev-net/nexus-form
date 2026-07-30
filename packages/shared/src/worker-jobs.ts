@@ -141,8 +141,9 @@ export function buildResponseLinkAnalysisDirtyJobId(
  * Builds the Redis key for a response-link dirty marker.
  *
  * The format is `response-link-analysis:dirty:<formId>`. API writes this key
- * when stable job slots cannot safely represent a mutation; Worker atomically
- * deletes it before deciding whether a rescue analysis is required.
+ * when stable job slots cannot safely represent a mutation; Worker reads the
+ * marker token and deletes it only if the token is unchanged after scheduling
+ * a rescue analysis.
  */
 export function getResponseLinkAnalysisDirtyKey(formId: string): string {
   return `response-link-analysis:dirty:${formId}`;

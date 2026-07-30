@@ -398,7 +398,7 @@ describe("queues", () => {
     expect(result).toEqual({ enqueued: false, status: "dirty" });
     expect(mocks.redisSet).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
-      "1",
+      expect.any(String),
       "EX",
       86_400,
     );
@@ -472,7 +472,7 @@ describe("queues", () => {
     expect(result).toEqual({ enqueued: false, status: "dirty" });
     expect(mocks.redisSet).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
-      "1",
+      expect.any(String),
       "EX",
       86_400,
     );
@@ -527,7 +527,7 @@ describe("queues", () => {
     expect(result).toEqual({ enqueued: false, status: "dirty" });
     expect(mocks.redisSet).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
-      "1",
+      expect.any(String),
       "EX",
       86_400,
     );
@@ -568,7 +568,7 @@ describe("queues", () => {
 
     expect(mocks.redisSet).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
-      "1",
+      expect.any(String),
       "EX",
       86_400,
     );
