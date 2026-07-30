@@ -59,6 +59,11 @@ type BucketPairAddResult = {
   truncated: boolean;
 };
 
+type CandidateBucket = {
+  key: string;
+  responseIds: string[];
+};
+
 type ResponseRow = {
   id: string;
   sessionId: string | null;
@@ -262,7 +267,11 @@ function chunks<T>(values: T[], size: number): T[][] {
 function addBucketPairs(
   candidatePairs: Set<string>,
   responseIds: Iterable<string>,
-  options: { bucketLimit?: number; maxCandidatePairs: number },
+  options: {
+    bucketLimit?: number;
+    enforceCandidateLimit?: boolean;
+    maxCandidatePairs: number;
+  },
 ): BucketPairAddResult {
   const ids = [...new Set(responseIds)].sort();
   if (ids.length < 2) return { skippedBucketCount: 0, truncated: false };
@@ -279,8 +288,8 @@ function addBucketPairs(
       if (candidatePairs.has(key)) continue;
       newPairKeys.push(key);
       if (
-        candidatePairs.size + newPairKeys.length >
-        options.maxCandidatePairs
+        options.enforceCandidateLimit !== false &&
+        candidatePairs.size + newPairKeys.length > options.maxCandidatePairs
       ) {
         return { skippedBucketCount: 1, truncated: true };
       }
@@ -290,6 +299,18 @@ function addBucketPairs(
     candidatePairs.add(key);
   }
   return { skippedBucketCount: 0, truncated: false };
+}
+
+function sortedCandidateBuckets(
+  buckets: Map<string, string[]>,
+): CandidateBucket[] {
+  return [...buckets.entries()]
+    .map(([key, responseIds]) => ({ key, responseIds }))
+    .sort((left, right) => {
+      const sizeComparison = left.responseIds.length - right.responseIds.length;
+      if (sizeComparison !== 0) return sizeComparison;
+      return left.key.localeCompare(right.key);
+    });
 }
 
 function pushBucketValue(
@@ -377,8 +398,9 @@ function buildCandidatePairs(
     respondentBuckets,
     strongSignalBuckets,
   ]) {
-    for (const responseIds of buckets.values()) {
+    for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
+        enforceCandidateLimit: false,
         maxCandidatePairs,
       });
       skippedBucketCount += result.skippedBucketCount;
@@ -387,7 +409,7 @@ function buildCandidatePairs(
   }
 
   for (const buckets of [boundedSignalBuckets, uaBuckets]) {
-    for (const responseIds of buckets.values()) {
+    for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
         bucketLimit: CANDIDATE_BUCKET_LIMIT,
         maxCandidatePairs,
@@ -609,9 +631,10 @@ async function persistResults(params: {
 /**
  * Builds and persists response-link shadow results for one form.
  *
- * Candidate generation is capped by `maxCandidatePairs`. Oversized popular
- * buckets and buckets that would exceed the global pair cap are skipped and
- * reported in completed-run metadata.
+ * Candidate generation keeps high-confidence session/respondent/visitor/v6
+ * buckets complete. Lower-confidence device, v4, and user-agent buckets are
+ * capped by `maxCandidatePairs`; buckets that would exceed the cap are skipped
+ * in a stable order and reported in completed-run metadata.
  */
 export async function analyzeResponseLinks(
   formId: string,

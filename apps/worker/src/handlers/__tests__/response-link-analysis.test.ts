@@ -309,12 +309,45 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("completes the run and skips buckets that would exceed the candidate cap", async () => {
+  it("keeps high-confidence session buckets complete even past the lower-confidence candidate cap", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
       respondentUuid: `respondent-${index}`,
       userAgent: null,
+    }));
+
+    const result = await analyzeResponseLinks("form-1", {
+      maxCandidatePairs: 10,
+    });
+
+    expect(result.linkCount).toBe(15);
+    expect(result.groupCount).toBe(1);
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadataJson: expect.objectContaining({
+          candidatePairLimitExceeded: false,
+          skippedCandidateBucketCount: 0,
+        }),
+        status: "COMPLETED",
+      }),
+    );
+  });
+
+  it("completes the run and skips lower-confidence buckets that would exceed the candidate cap", async () => {
+    mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
+      id: `response-${index.toString().padStart(3, "0")}`,
+      sessionId: null,
+      respondentUuid: `respondent-${index}`,
+      userAgent: null,
+    }));
+    mocks.fingerprintRows = mocks.responseRows.map((response) => ({
+      responseId: response.id,
+      fingerprintType: "telemetry",
+      componentName: "v4",
+      componentValue: null,
+      componentValueHash: "same-v4",
     }));
 
     const result = await analyzeResponseLinks("form-1", {

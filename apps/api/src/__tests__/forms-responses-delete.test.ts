@@ -30,10 +30,38 @@ const mocks = vi.hoisted(() => {
     },
     formValidationRule: {},
     responseLinkAnalysisRun: {
+      completedAt: "responseLinkAnalysisRun.completedAt",
       formId: "responseLinkAnalysisRun.formId",
+      id: "responseLinkAnalysisRun.id",
+      metadataJson: "responseLinkAnalysisRun.metadataJson",
       modelVersion: "responseLinkAnalysisRun.modelVersion",
+      populationSize: "responseLinkAnalysisRun.populationSize",
+      statsVersion: "responseLinkAnalysisRun.statsVersion",
       status: "responseLinkAnalysisRun.status",
       tableName: "responseLinkAnalysisRun",
+    },
+    responsePairLink: {
+      responseIdA: "responsePairLink.responseIdA",
+      responseIdB: "responsePairLink.responseIdB",
+      runId: "responsePairLink.runId",
+      strength: "responsePairLink.strength",
+      tableName: "responsePairLink",
+    },
+    responseSuspicionGroup: {
+      groupKey: "responseSuspicionGroup.groupKey",
+      id: "responseSuspicionGroup.id",
+      responseCount: "responseSuspicionGroup.responseCount",
+      runId: "responseSuspicionGroup.runId",
+      strongLinkCount: "responseSuspicionGroup.strongLinkCount",
+      summaryJson: "responseSuspicionGroup.summaryJson",
+      supportLinkCount: "responseSuspicionGroup.supportLinkCount",
+      tableName: "responseSuspicionGroup",
+      technicalConfidence: "responseSuspicionGroup.technicalConfidence",
+    },
+    responseSuspicionGroupMember: {
+      groupId: "responseSuspicionGroupMember.groupId",
+      responseId: "responseSuspicionGroupMember.responseId",
+      tableName: "responseSuspicionGroupMember",
     },
   };
 
@@ -139,6 +167,7 @@ vi.mock("../lib/response-data-json", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
+  asc: vi.fn((field) => ({ op: "asc", field })),
   desc: vi.fn((field) => ({ op: "desc", field })),
   eq: vi.fn((left, right) => ({ op: "eq", left, right })),
   inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
@@ -154,6 +183,7 @@ function selectLimitQuery(result: unknown[]) {
   const query = {
     from: vi.fn(() => query),
     innerJoin: vi.fn(() => query),
+    orderBy: vi.fn(() => query),
     where: vi.fn((condition: unknown) => {
       mocks.whereConditions.push(condition);
       return query;
@@ -166,10 +196,28 @@ function selectLimitQuery(result: unknown[]) {
 function selectWhereQuery(result: unknown[]) {
   const query = {
     from: vi.fn(() => query),
+    innerJoin: vi.fn(() => query),
     where: vi.fn((condition: unknown) => {
       mocks.whereConditions.push(condition);
       return Promise.resolve(result);
     }),
+  };
+  return query;
+}
+
+function selectSuspicionGroupsQuery(result: unknown[]) {
+  let offset = 0;
+  const query = {
+    from: vi.fn(() => query),
+    where: vi.fn(() => query),
+    orderBy: vi.fn(() => query),
+    offset: vi.fn((value: number) => {
+      offset = value;
+      return query;
+    }),
+    limit: vi.fn((value: number) =>
+      Promise.resolve(result.slice(offset, offset + value)),
+    ),
   };
   return query;
 }
@@ -343,6 +391,89 @@ describe("response deletion API", () => {
         values: { status: "STALE" },
       }),
     );
+  });
+
+  it("scans past stale suspicion groups with tied counts using a stable order", async () => {
+    const staleGroups = Array.from({ length: 100 }, (_, index) => ({
+      id: `stale-group-${String(index).padStart(3, "0")}`,
+      groupKey: `stale-${index}`,
+      technicalConfidence: "STRONG",
+      responseCount: 2,
+      strongLinkCount: 1,
+      supportLinkCount: 0,
+      summaryJson: { reasonCodes: ["stale"] },
+    }));
+    const liveGroup = {
+      id: "live-group",
+      groupKey: "live",
+      technicalConfidence: "STRONG",
+      responseCount: 2,
+      strongLinkCount: 1,
+      supportLinkCount: 0,
+      summaryJson: { reasonCodes: ["session"] },
+    };
+    const suspicionGroupsQuery = selectSuspicionGroupsQuery([
+      ...staleGroups,
+      liveGroup,
+    ]);
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 2,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(suspicionGroupsQuery)
+      .mockReturnValueOnce(selectWhereQuery([]))
+      .mockReturnValueOnce(suspicionGroupsQuery)
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "live-group", responseId: "response-1" },
+          { groupId: "live-group", responseId: "response-2" },
+        ]),
+      )
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          {
+            responseIdA: "response-1",
+            responseIdB: "response-2",
+            strength: "STRONG",
+          },
+        ]),
+      );
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "live",
+          responseCount: 2,
+          strongLinkCount: 1,
+          supportLinkCount: 0,
+        },
+      ],
+      hasNext: false,
+    });
+    expect(suspicionGroupsQuery.orderBy).toHaveBeenCalledWith(
+      { op: "desc", field: "responseSuspicionGroup.responseCount" },
+      { op: "desc", field: "responseSuspicionGroup.strongLinkCount" },
+      { op: "asc", field: "responseSuspicionGroup.id" },
+    );
+    expect(suspicionGroupsQuery.offset).toHaveBeenNthCalledWith(1, 0);
+    expect(suspicionGroupsQuery.offset).toHaveBeenNthCalledWith(2, 100);
   });
 
   it("queues response link analysis after bulk deletion", async () => {

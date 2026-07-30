@@ -33,7 +33,7 @@ import {
   type ValidationOutputExportSettings,
   type ValidationStatusValue,
 } from "@nexus-form/shared";
-import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -578,6 +578,26 @@ type LatestCompletedResponseLinkRun = {
   skippedCandidateBucketCount: number;
 };
 
+type LiveResponseSuspicionGroupAggregate = {
+  responseCount: number;
+  strongLinkCount: number;
+  supportLinkCount: number;
+};
+
+type ResponseSuspicionGroupListRow = {
+  id: string;
+  groupKey: string;
+  technicalConfidence: "HARD" | "NONE" | "STRONG" | "SUPPORT";
+  responseCount: number;
+  strongLinkCount: number;
+  supportLinkCount: number;
+  summaryJson: unknown;
+};
+
+type LiveResponseSuspicionGroupListRow = ResponseSuspicionGroupListRow & {
+  aggregate: LiveResponseSuspicionGroupAggregate;
+};
+
 async function getLatestCompletedResponseLinkRun(
   formId: string,
 ): Promise<LatestCompletedResponseLinkRun | null> {
@@ -632,6 +652,80 @@ async function enqueueDeletionResponseLinkAnalysis(
     reason: "response-deleted",
   });
   await markResponseLinkAnalysisRunsStale(formId);
+}
+
+async function getLiveResponseSuspicionGroupAggregates(
+  runId: string,
+  groupIds: string[],
+): Promise<Map<string, LiveResponseSuspicionGroupAggregate>> {
+  if (groupIds.length === 0) return new Map();
+  const memberRows = await db
+    .select({
+      groupId: responseSuspicionGroupMember.groupId,
+      responseId: responseSuspicionGroupMember.responseId,
+    })
+    .from(responseSuspicionGroupMember)
+    .innerJoin(
+      formResponse,
+      eq(responseSuspicionGroupMember.responseId, formResponse.id),
+    )
+    .where(inArray(responseSuspicionGroupMember.groupId, groupIds));
+
+  const responseIds = [...new Set(memberRows.map((row) => row.responseId))];
+  const groupMembers = new Map<string, Set<string>>();
+  const groupsByResponseId = new Map<string, Set<string>>();
+  for (const row of memberRows) {
+    const members = groupMembers.get(row.groupId) ?? new Set<string>();
+    members.add(row.responseId);
+    groupMembers.set(row.groupId, members);
+
+    const groups = groupsByResponseId.get(row.responseId) ?? new Set<string>();
+    groups.add(row.groupId);
+    groupsByResponseId.set(row.responseId, groups);
+  }
+
+  const aggregates = new Map<string, LiveResponseSuspicionGroupAggregate>();
+  for (const [groupId, members] of groupMembers) {
+    aggregates.set(groupId, {
+      responseCount: members.size,
+      strongLinkCount: 0,
+      supportLinkCount: 0,
+    });
+  }
+  if (responseIds.length === 0) return aggregates;
+
+  const linkRows = await db
+    .select({
+      responseIdA: responsePairLink.responseIdA,
+      responseIdB: responsePairLink.responseIdB,
+      strength: responsePairLink.strength,
+    })
+    .from(responsePairLink)
+    .where(
+      and(
+        eq(responsePairLink.runId, runId),
+        inArray(responsePairLink.responseIdA, responseIds),
+        inArray(responsePairLink.responseIdB, responseIds),
+      ),
+    );
+
+  for (const link of linkRows) {
+    const leftGroups = groupsByResponseId.get(link.responseIdA);
+    const rightGroups = groupsByResponseId.get(link.responseIdB);
+    if (!leftGroups || !rightGroups) continue;
+    for (const groupId of leftGroups) {
+      if (!rightGroups.has(groupId)) continue;
+      const aggregate = aggregates.get(groupId);
+      if (!aggregate) continue;
+      if (link.strength === "STRONG" || link.strength === "HARD") {
+        aggregate.strongLinkCount += 1;
+      } else if (link.strength === "SUPPORT") {
+        aggregate.supportLinkCount += 1;
+      }
+    }
+  }
+
+  return aggregates;
 }
 
 function decorateResponseRow<T extends { id: string }>(
@@ -2417,23 +2511,54 @@ export const formsResponsesRouter = createHonoApp()
       );
     }
 
-    const rows = await db
-      .select({
-        groupKey: responseSuspicionGroup.groupKey,
-        technicalConfidence: responseSuspicionGroup.technicalConfidence,
-        responseCount: responseSuspicionGroup.responseCount,
-        strongLinkCount: responseSuspicionGroup.strongLinkCount,
-        supportLinkCount: responseSuspicionGroup.supportLinkCount,
-        summaryJson: responseSuspicionGroup.summaryJson,
-      })
-      .from(responseSuspicionGroup)
-      .where(eq(responseSuspicionGroup.runId, run.id))
-      .orderBy(
-        desc(responseSuspicionGroup.responseCount),
-        desc(responseSuspicionGroup.strongLinkCount),
-      )
-      .limit(RESPONSE_SUSPICION_GROUP_LIST_LIMIT + 1);
-    const visibleRows = rows.slice(0, RESPONSE_SUSPICION_GROUP_LIST_LIMIT);
+    const liveRows: LiveResponseSuspicionGroupListRow[] = [];
+    const batchSize = RESPONSE_SUSPICION_GROUP_LIST_LIMIT;
+    let offset = 0;
+    let hasMorePersistedGroups = true;
+    while (
+      liveRows.length <= RESPONSE_SUSPICION_GROUP_LIST_LIMIT &&
+      hasMorePersistedGroups
+    ) {
+      const rows = await db
+        .select({
+          id: responseSuspicionGroup.id,
+          groupKey: responseSuspicionGroup.groupKey,
+          technicalConfidence: responseSuspicionGroup.technicalConfidence,
+          responseCount: responseSuspicionGroup.responseCount,
+          strongLinkCount: responseSuspicionGroup.strongLinkCount,
+          supportLinkCount: responseSuspicionGroup.supportLinkCount,
+          summaryJson: responseSuspicionGroup.summaryJson,
+        })
+        .from(responseSuspicionGroup)
+        .where(eq(responseSuspicionGroup.runId, run.id))
+        .orderBy(
+          desc(responseSuspicionGroup.responseCount),
+          desc(responseSuspicionGroup.strongLinkCount),
+          asc(responseSuspicionGroup.id),
+        )
+        .offset(offset)
+        .limit(batchSize + 1);
+      const batchRows = rows.slice(0, batchSize);
+      hasMorePersistedGroups = rows.length > batchSize;
+      offset += batchRows.length;
+      const aggregates = await getLiveResponseSuspicionGroupAggregates(
+        run.id,
+        batchRows.map((row) => row.id),
+      );
+      for (const row of batchRows) {
+        const aggregate = aggregates.get(row.id);
+        if (
+          !aggregate ||
+          aggregate.responseCount < 2 ||
+          aggregate.strongLinkCount + aggregate.supportLinkCount === 0
+        ) {
+          continue;
+        }
+        liveRows.push({ ...row, aggregate });
+        if (liveRows.length > RESPONSE_SUSPICION_GROUP_LIST_LIMIT) break;
+      }
+    }
+    const visibleRows = liveRows.slice(0, RESPONSE_SUSPICION_GROUP_LIST_LIMIT);
 
     return c.json(
       ResponseSuspicionGroupsResponseSchema.parse({
@@ -2446,14 +2571,14 @@ export const formsResponsesRouter = createHonoApp()
           return {
             groupKey: row.groupKey,
             technicalConfidence: row.technicalConfidence,
-            responseCount: row.responseCount,
-            strongLinkCount: row.strongLinkCount,
-            supportLinkCount: row.supportLinkCount,
+            responseCount: row.aggregate.responseCount,
+            strongLinkCount: row.aggregate.strongLinkCount,
+            supportLinkCount: row.aggregate.supportLinkCount,
             reasonCodes: summary.reasonCodes,
             topFamilies: summary.topFamilies,
           };
         }),
-        hasNext: rows.length > RESPONSE_SUSPICION_GROUP_LIST_LIMIT,
+        hasNext: liveRows.length > RESPONSE_SUSPICION_GROUP_LIST_LIMIT,
       }),
     );
   })
@@ -2498,6 +2623,17 @@ export const formsResponsesRouter = createHonoApp()
       .limit(1);
 
     if (!groupRow) {
+      return c.json(errorResponse("Suspicion group not found"), 404);
+    }
+    const aggregates = await getLiveResponseSuspicionGroupAggregates(run.id, [
+      groupRow.id,
+    ]);
+    const aggregate = aggregates.get(groupRow.id);
+    if (
+      !aggregate ||
+      aggregate.responseCount < 2 ||
+      aggregate.strongLinkCount + aggregate.supportLinkCount === 0
+    ) {
       return c.json(errorResponse("Suspicion group not found"), 404);
     }
 
@@ -2555,9 +2691,9 @@ export const formsResponsesRouter = createHonoApp()
         group: {
           groupKey: groupRow.groupKey,
           technicalConfidence: groupRow.technicalConfidence,
-          responseCount: groupRow.responseCount,
-          strongLinkCount: groupRow.strongLinkCount,
-          supportLinkCount: groupRow.supportLinkCount,
+          responseCount: aggregate.responseCount,
+          strongLinkCount: aggregate.strongLinkCount,
+          supportLinkCount: aggregate.supportLinkCount,
           reasonCodes: summary.reasonCodes,
           topFamilies: summary.topFamilies,
         },
