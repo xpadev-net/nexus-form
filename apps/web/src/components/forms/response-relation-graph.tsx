@@ -419,11 +419,11 @@ export function ResponseRelationGraphCanvas({
   };
 
   const startPanning = (event: PointerEvent<SVGSVGElement>) => {
-    if (
-      event.button !== 0 ||
-      !(event.target instanceof Element) ||
-      event.target.tagName.toLowerCase() !== "rect"
-    ) {
+    const isBackgroundTarget =
+      event.target === event.currentTarget ||
+      (event.target instanceof Element &&
+        event.target.tagName.toLowerCase() === "rect");
+    if (event.button !== 0 || !isBackgroundTarget) {
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);

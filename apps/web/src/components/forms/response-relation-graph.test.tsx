@@ -314,6 +314,41 @@ describe("ResponseRelationGraphCanvas", () => {
     expect(svg.getAttribute("viewBox")).toBe("310 170 900 520");
   });
 
+  it("starts panning from the SVG letterbox area", () => {
+    const nodes = [graphNode(0), graphNode(1)];
+    const [sourceNode, targetNode] = nodes;
+    if (!sourceNode || !targetNode) {
+      throw new Error("Expected graph node fixtures to be present");
+    }
+    const layout = buildLayout(
+      nodes,
+      [graphEdge(sourceNode.responseId, targetNode.responseId)],
+      [],
+    );
+    const { svg } = renderCanvas(layout);
+
+    act(() => {
+      fireEvent.pointerDown(svg, {
+        button: 0,
+        clientX: 100,
+        clientY: 100,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerMove(svg, {
+        clientX: 0,
+        clientY: 50,
+        pointerId: 1,
+      });
+      fireEvent.pointerUp(svg, {
+        pointerId: 1,
+      });
+    });
+
+    expect(svg.getAttribute("viewBox")).toBe("310 170 900 520");
+  });
+
   it("supports keyboard panning and keeps focused nodes visible", () => {
     const nodes = [graphNode(0), graphNode(1)];
     const [sourceNode, targetNode] = nodes;
