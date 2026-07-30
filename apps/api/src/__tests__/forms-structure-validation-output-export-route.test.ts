@@ -66,7 +66,6 @@ const currentStructure = {
   version: 2,
   settings: {
     allow_edit_responses: true,
-    require_fingerprint: true,
     privacy_notice: "keep me",
   },
   confirmation: {

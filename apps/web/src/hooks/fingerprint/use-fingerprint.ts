@@ -157,7 +157,7 @@ const collectAll = async () => {
   }
 
   if (collected.length === 0) {
-    throw new Error("ブラウザ情報の収集に失敗しました");
+    throw new Error("セキュリティ確認に失敗しました");
   }
 
   return collected;
@@ -169,7 +169,7 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
   const collectMutation = useMutation({
     mutationFn: collectAll,
     onError: () => {
-      toast.error("ブラウザ情報の収集に失敗しました");
+      toast.error("セキュリティ確認に失敗しました");
     },
   });
   const mutateAsyncRef = useRef(collectMutation.mutateAsync);
@@ -193,7 +193,7 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
         }),
       ),
     onError: () => {
-      toast.error("フィンガープリント保存に失敗しました");
+      toast.error("確認データの保存に失敗しました");
     },
   });
 
@@ -239,7 +239,7 @@ export const useFingerprintManage = (
         }),
       ),
     onError: () => {
-      toast.error("フィンガープリント削除に失敗しました");
+      toast.error("確認データの削除に失敗しました");
     },
   });
 

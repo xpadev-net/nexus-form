@@ -273,7 +273,6 @@ function publishedSnapshot() {
       version: 1,
       settings: {
         allow_edit_responses: false,
-        require_fingerprint: false,
       },
     }),
     title: "Published form",
@@ -461,7 +460,7 @@ describe("public URL regeneration routes", () => {
       {
         body: JSON.stringify({
           captchaToken: "captcha-token",
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
           responses: [
             {
               question_id: "question-1",
@@ -492,7 +491,7 @@ describe("public URL regeneration routes", () => {
       {
         body: JSON.stringify({
           captchaToken: "captcha-token",
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
           responses: [
             {
               question_id: "question-1",
@@ -509,7 +508,6 @@ describe("public URL regeneration routes", () => {
     expect(newPublicSubmit.status).toBe(201);
     await expect(newPublicSubmit.json()).resolves.toMatchObject({
       response: {
-        formId: "form-1",
         id: "new-response-id",
       },
     });

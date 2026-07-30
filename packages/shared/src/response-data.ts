@@ -199,6 +199,8 @@ const responsePayloadItemBaseSchema = z.object({
     .array(responseTextSchema)
     .max(MAX_RESPONSE_SELECTIONS)
     .optional(),
+  // Intentionally rejects legacy client-supplied collection data when present.
+  fingerprints: z.never().optional(),
 });
 
 export const responsePayloadItemSchema =

@@ -141,6 +141,13 @@
       "when": 1785351630219,
       "tag": "0019_classy_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1785414419009,
+      "tag": "0020_nice_cargill",
+      "breakpoints": true
     }
   ]
 }

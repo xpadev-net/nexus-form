@@ -543,6 +543,55 @@ export const fingerprintDetail = mysqlTable(
   ],
 );
 
+// Public fingerprint collection attempts finalized before response submit.
+export const fingerprintCollectionAttempt = mysqlTable(
+  "FingerprintCollectionAttempt",
+  {
+    id: varchar("id", { length: 128 }).primaryKey(),
+    formId: varchar("formId", { length: 128 }).notNull(),
+    challengeTokenHash: varchar("challengeTokenHash", {
+      length: 64,
+    })
+      .notNull()
+      .unique(),
+    collectionTokenHash: varchar("collectionTokenHash", {
+      length: 64,
+    }).unique(),
+    observedIpHash: varchar("observedIpHash", { length: 64 }).notNull(),
+    userAgentHash: varchar("userAgentHash", { length: 64 }).notNull(),
+    collectorVersion: varchar("collectorVersion", { length: 64 }).notNull(),
+    exchangeVersion: int("exchangeVersion").notNull(),
+    exchangeNonce: varchar("exchangeNonce", { length: 64 }).notNull(),
+    serverContextJson: json("serverContextJson").notNull(),
+    observationDigestJson: json("observationDigestJson").notNull(),
+    challengeExpiresAt: timestamp("challengeExpiresAt").notNull(),
+    collectionExpiresAt: timestamp("collectionExpiresAt"),
+    finalizedAt: timestamp("finalizedAt"),
+    consumedAt: timestamp("consumedAt"),
+    consumedResponseId: varchar("consumedResponseId", {
+      length: 128,
+    }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    index("FingerprintCollectionAttempt_expiresAt_idx").on(
+      table.challengeExpiresAt,
+      table.collectionExpiresAt,
+    ),
+    index("FingerprintCollectionAttempt_consumedAt_idx").on(table.consumedAt),
+    foreignKey({
+      columns: [table.formId],
+      foreignColumns: [form.id],
+      name: "FCA_formId_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.consumedResponseId],
+      foreignColumns: [formResponse.id],
+      name: "FCA_consumedResponseId_fk",
+    }).onDelete("set null"),
+  ],
+);
+
 // ── Response Link Analysis Shadow Results ───────────────────────────
 
 export const responseLinkAnalysisRun = mysqlTable(

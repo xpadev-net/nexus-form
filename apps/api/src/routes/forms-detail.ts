@@ -57,11 +57,12 @@ const updateFormSchema = z.object({
   description: z.string().max(5000).nullable().optional(),
 });
 
-const updateResponseSettingsSchema = z.object({
-  allowEdit: z.boolean(),
-  maxResponses: z.number().int().min(0).max(100000).nullable(),
-  requireFingerprint: z.boolean(),
-});
+export const UpdateResponseSettingsRequestSchema = z
+  .object({
+    allowEdit: z.boolean(),
+    maxResponses: z.number().int().min(0).max(100000).nullable(),
+  })
+  .strict();
 
 export const UpdateResponseSettingsResponseSchema = z.object({
   success: z.literal(true),
@@ -69,6 +70,16 @@ export const UpdateResponseSettingsResponseSchema = z.object({
 export type UpdateResponseSettingsResponse = z.infer<
   typeof UpdateResponseSettingsResponseSchema
 >;
+
+function omitRemovedResponseSettings(
+  settings: FormStructure["settings"] & { require_fingerprint?: unknown },
+): FormStructure["settings"] {
+  const {
+    require_fingerprint: _removedRequireFingerprint,
+    ...normalizedSettings
+  } = settings;
+  return normalizedSettings;
+}
 
 const transferOwnerSchema = z.object({
   newOwnerUserId: z.string().min(1),
@@ -200,7 +211,7 @@ export const formsDetailRouter = createHonoApp()
     "/:id/settings/responses",
     withDualFormAuth("EDITOR"),
     formMutationRateLimit,
-    zValidator("json", updateResponseSettingsSchema),
+    zValidator("json", UpdateResponseSettingsRequestSchema),
     async (c) => {
       const id = c.req.param("id");
       const payload = c.req.valid("json");
@@ -225,10 +236,12 @@ export const formsDetailRouter = createHonoApp()
           settings: {
             ...currentStructure.settings,
             allow_edit_responses: payload.allowEdit,
-            require_fingerprint: payload.requireFingerprint,
             ...(responseLimit ? { response_limit: responseLimit } : {}),
           },
         };
+        updatedStructure.settings = omitRemovedResponseSettings(
+          updatedStructure.settings,
+        );
         if (!responseLimit) {
           delete updatedStructure.settings.response_limit;
         }

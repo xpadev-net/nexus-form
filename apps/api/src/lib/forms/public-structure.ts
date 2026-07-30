@@ -12,7 +12,6 @@ import { isSafeFormAppearanceImageUrl } from "@nexus-form/shared";
 /** Settings sub-fields safe to expose in the public API response. */
 const PUBLIC_SETTINGS_KEYS = [
   "allow_edit_responses",
-  "require_fingerprint",
   "response_limit",
   "privacy_notice",
   "schedule",

@@ -7,10 +7,28 @@
  * R2-H3: VIEWER cannot list permissions or invitations (EDITOR gate)
  */
 
+import { createHash, createHmac } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
+
+const securityExchangeTables = vi.hoisted(() => ({
+  fingerprintCollectionAttempt: {
+    id: "fingerprintCollectionAttempt.id",
+    formId: "fingerprintCollectionAttempt.formId",
+    challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
+    collectionTokenHash: "fingerprintCollectionAttempt.collectionTokenHash",
+    challengeExpiresAt: "fingerprintCollectionAttempt.challengeExpiresAt",
+    collectionExpiresAt: "fingerprintCollectionAttempt.collectionExpiresAt",
+    consumedAt: "fingerprintCollectionAttempt.consumedAt",
+    finalizedAt: "fingerprintCollectionAttempt.finalizedAt",
+    observedIpHash: "fingerprintCollectionAttempt.observedIpHash",
+    observationDigestJson: "fingerprintCollectionAttempt.observationDigestJson",
+    serverContextJson: "fingerprintCollectionAttempt.serverContextJson",
+    userAgentHash: "fingerprintCollectionAttempt.userAgentHash",
+  },
+}));
 
 vi.mock("@nexus-form/database", () => ({
   db: {
@@ -31,6 +49,9 @@ vi.mock("@nexus-form/database", () => ({
         fn({}),
       ),
   },
+  assertRequiredSecurityMigrationsApplied: vi.fn().mockResolvedValue(undefined),
+  fingerprintCollectionAttempt:
+    securityExchangeTables.fingerprintCollectionAttempt,
   user: {},
   session: {},
   account: {},
@@ -44,6 +65,8 @@ vi.mock("@nexus-form/database/schema", () => ({
   formPermission: {},
   formShareLink: {},
   formResponse: {},
+  fingerprintCollectionAttempt:
+    securityExchangeTables.fingerprintCollectionAttempt,
   fingerprintDetail: {},
   formInvitation: {},
   formStructure: {},
@@ -88,6 +111,7 @@ vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: vi
     .fn()
     .mockResolvedValue([{ version: "v4", ipHash: "hash-v4" }]),
+  hashIPAddress: (ip: string) => `hash:${ip}`,
 }));
 
 vi.mock("../lib/forms/schedule-processor", () => ({
@@ -262,6 +286,90 @@ function makePublicSubmitFingerprints(count: number) {
     name: `component-${index}`,
     value_hash: `hash-${index.toString().padStart(3, "0")}`,
   }));
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function securityExchangeCookieName(attemptId = "attempt-1"): string {
+  return `nf_sc_${sha256Hex(attemptId).slice(0, 16)}`;
+}
+
+function securityExchangeHeaders(
+  cookieToken?: string,
+  attemptId = "attempt-1",
+): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Origin: "http://localhost",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    ...(cookieToken
+      ? { Cookie: `${securityExchangeCookieName(attemptId)}=${cookieToken}` }
+      : {}),
+  };
+}
+
+function securityPlanEntries() {
+  return [
+    { a: "slot-timezone", f: 1, n: "timezone", r: true, c: "a1" },
+    { a: "slot-language", f: 1, n: "language", r: true, c: "a2" },
+    { a: "slot-platform", f: 1, n: "platform", r: true, c: "a3" },
+    { a: "slot-user-agent", f: 1, n: "userAgent", r: true, c: "a4" },
+    { a: "slot-visitor", f: 2, n: "visitorId", r: true, c: "b1" },
+    { a: "slot-canvas", f: 2, n: "canvas", r: true, c: "b2" },
+    { a: "slot-fonts", f: 2, n: "fonts", r: true, c: "b3" },
+    { a: "slot-screen", f: 2, n: "screen", r: true, c: "b4" },
+  ];
+}
+
+function securityEvidenceTuples(): Array<[string, string]> {
+  return [
+    ["slot-timezone", "0".repeat(64)],
+    ["slot-language", "1".repeat(64)],
+    ["slot-platform", "2".repeat(64)],
+    ["slot-user-agent", "3".repeat(64)],
+    ["slot-visitor", "4".repeat(64)],
+    ["slot-canvas", "5".repeat(64)],
+    ["slot-fonts", "6".repeat(64)],
+    ["slot-screen", "7".repeat(64)],
+  ];
+}
+
+function validSecurityServerContext() {
+  return {
+    k: sha256Hex("security-exchange-cookie:cookie-token"),
+    l: sha256Hex("en-US"),
+    s: securityPlanEntries(),
+  };
+}
+
+function createSignedSecurityReceipt(params: {
+  attemptId: string;
+  digest: string;
+  expiresAt: number;
+  formId: string;
+  publicId: string;
+}): string {
+  const encodedPayload = Buffer.from(
+    JSON.stringify({
+      a: params.attemptId,
+      d: params.digest,
+      e: params.expiresAt,
+      f: params.formId,
+      n: "test-receipt-nonce",
+      u: params.publicId,
+      v: 1,
+    }),
+    "utf8",
+  ).toString("base64url");
+  const signature = createHmac("sha256", "test-security-exchange-secret")
+    .update(encodedPayload)
+    .digest("base64url");
+  return `${encodedPayload}.${signature}`;
 }
 
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
@@ -691,7 +799,7 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
           responses: [],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "test-security-check-token",
         }),
       });
 
@@ -727,16 +835,28 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
   });
 });
 
-// ── R15-C1: Public submit fingerprint payload limit ───────────────────────
+// ── R15-C1: Public submit security evidence persistence ───────────────────
 
-describe("R15-C1: public submit accepts full fingerprint payloads", () => {
+describe("R15-C1: public submit persists linked security evidence", () => {
+  let previousBaseUrl: string | undefined;
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    previousBaseUrl = process.env.VITE_BASE_URL;
+    process.env.VITE_BASE_URL = "http://localhost";
+  });
+
+  afterEach(() => {
+    if (previousBaseUrl === undefined) {
+      delete process.env.VITE_BASE_URL;
+    } else {
+      process.env.VITE_BASE_URL = previousBaseUrl;
+    }
   });
 
   it(
-    "accepts fingerprint-required submissions with 200 fingerprint components",
+    "accepts submissions linked to the development telemetry token",
     async () => {
       const { db } = await import("@nexus-form/database");
       const schema = await import("@nexus-form/database/schema");
@@ -793,7 +913,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             responses: [],
             captchaToken: "test-captcha-token",
             telemetry: { v4Token: "tok-v4" },
-            fingerprints: makePublicSubmitFingerprints(200),
+            securityVerificationToken: "test-security-check-token",
           }),
         },
       );
@@ -801,12 +921,9 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
       expect(res.status).toBe(201);
       expect(txSpy).toHaveBeenCalledOnce();
       expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
-      expect(insertedFingerprints).toHaveLength(201);
+      expect(insertedFingerprints).toHaveLength(1);
       expect(insertedFingerprints).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ fingerprintType: "browser" }),
-          expect.objectContaining({ fingerprintType: "fingerprintjs" }),
-          expect.objectContaining({ fingerprintType: "thumbmarkjs" }),
           expect.objectContaining({
             fingerprintType: "telemetry",
             componentName: "v4",
@@ -840,7 +957,6 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             version: 1,
             settings: {
               allow_edit_responses: false,
-              require_fingerprint: false,
             },
           }),
         }),
@@ -881,7 +997,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             responses: [],
             captchaToken: "test-captcha-token",
             telemetry: { v4Token: "tok-v4", v6Token: "tok-v6" },
-            fingerprints: [],
+            securityVerificationToken: "test-security-check-token",
           }),
         },
       );
@@ -910,7 +1026,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
   );
 
   it(
-    "rejects fingerprint payloads above 200 before database work",
+    "rejects legacy fingerprint payloads before database work",
     async () => {
       const { db } = await import("@nexus-form/database");
       const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
@@ -931,7 +1047,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             responses: [],
             captchaToken: "test-captcha-token",
             telemetry: { v4Token: "tok-v4" },
-            fingerprints: makePublicSubmitFingerprints(201),
+            fingerprints: makePublicSubmitFingerprints(1),
           }),
         },
       );
@@ -939,6 +1055,676 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
       expect(res.status).toBe(400);
       expect(dbSelect).not.toHaveBeenCalled();
       expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects nested legacy fingerprint payloads before database work",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: {
+              v4Token: "tok-v4",
+              fingerprints: makePublicSubmitFingerprints(1),
+            },
+            securityVerificationToken: "test-security-check-token",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects legacy fingerprint payloads nested in response items before database work",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [
+              {
+                question_id: "q1",
+                question_type: "short_text",
+                value: "answer",
+                fingerprints: makePublicSubmitFingerprints(1),
+              },
+            ],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            securityVerificationToken: "test-security-check-token",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "requires a security verification token even when an older snapshot disables the removed toggle",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Security verification token is required",
+      });
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects an invalid security exchange close challenge without finalizing details",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txInsert = vi.fn();
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => []),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders("cookie-token"),
+          body: JSON.stringify({
+            r: "missing-challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+            d: securityEvidenceTuples(),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txInsert).not.toHaveBeenCalled();
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "redacts security exchange schema errors instead of reflecting rejected keys",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders(),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "nonce",
+            p: "test-captcha-token",
+            d: securityEvidenceTuples(),
+            require_fingerprint: true,
+          }),
+        },
+      );
+
+      const responseText = await res.text();
+      expect(res.status).toBe(400);
+      expect(responseText).toBe(
+        JSON.stringify({ error: "Invalid request payload" }),
+      );
+      expect(responseText).not.toContain("require_fingerprint");
+      expect(responseText).not.toContain("fingerprint");
+      expect(dbSelect).not.toHaveBeenCalled();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects security exchange close without the server-issued context cookie",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txInsert = vi.fn(() => ({ values: vi.fn() }));
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  serverContextJson: validSecurityServerContext(),
+                  challengeExpiresAt: new Date(Date.now() + 60_000),
+                  finalizedAt: null,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders(),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+            d: securityEvidenceTuples(),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txInsert).not.toHaveBeenCalled();
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "finalizes security exchange close only with the matching server-issued context cookie",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txWhere = vi.fn(async () => undefined);
+      const txSet = vi.fn(() => ({ where: txWhere }));
+      const txUpdate = vi.fn(() => ({ set: txSet }));
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  serverContextJson: validSecurityServerContext(),
+                  challengeExpiresAt: new Date(Date.now() + 60_000),
+                  finalizedAt: null,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders("cookie-token"),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+            d: securityEvidenceTuples(),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        t: expect.any(String),
+        e: expect.any(Number),
+      });
+      expect(txUpdate).toHaveBeenCalledOnce();
+      expect(res.headers.get("Set-Cookie")).toContain("nf_sc_");
+      expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects security exchange close when acknowledged slots are duplicated",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  serverContextJson: validSecurityServerContext(),
+                  challengeExpiresAt: new Date(Date.now() + 60_000),
+                  finalizedAt: null,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ select: txSelect, update: txUpdate }),
+      );
+
+      const duplicatedEvidence = [
+        ...securityEvidenceTuples(),
+        ["slot-canvas", "8".repeat(64)] as [string, string],
+      ];
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders("cookie-token"),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+            d: duplicatedEvidence,
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects security exchange close when the accepted language anchor is forged",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  serverContextJson: validSecurityServerContext(),
+                  challengeExpiresAt: new Date(Date.now() + 60_000),
+                  finalizedAt: null,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: {
+            ...securityExchangeHeaders("cookie-token"),
+            "Accept-Language": "ja-JP,ja;q=0.9",
+          },
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+            d: securityEvidenceTuples(),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it.each([
+    [
+      "expired",
+      {
+        challengeExpiresAt: new Date(Date.now() - 1_000),
+        finalizedAt: null,
+        observedIpHash: "hash:127.0.0.1",
+        userAgentHash: sha256Hex(""),
+      },
+    ],
+    [
+      "already finalized",
+      {
+        challengeExpiresAt: new Date(Date.now() + 60_000),
+        finalizedAt: new Date(),
+        observedIpHash: "hash:127.0.0.1",
+        userAgentHash: sha256Hex(""),
+      },
+    ],
+    [
+      "IP mismatched",
+      {
+        challengeExpiresAt: new Date(Date.now() + 60_000),
+        finalizedAt: null,
+        observedIpHash: "hash:203.0.113.99",
+        userAgentHash: sha256Hex(""),
+      },
+    ],
+    [
+      "UA mismatched",
+      {
+        challengeExpiresAt: new Date(Date.now() + 60_000),
+        finalizedAt: null,
+        observedIpHash: "hash:127.0.0.1",
+        userAgentHash: sha256Hex("different-agent"),
+      },
+    ],
+  ])(
+    "rejects %s security exchange close challenges without finalizing details",
+    async (_label, attemptState) => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txInsert = vi.fn();
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  serverContextJson: validSecurityServerContext(),
+                  ...attemptState,
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders("cookie-token"),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+            d: securityEvidenceTuples(),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txInsert).not.toHaveBeenCalled();
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects consumed collection tokens before linking details to a new response",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "q1",
+              children: [{ text: "Name" }],
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: { allow_edit_responses: false },
+          }),
+        }),
+      );
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txUpdate = vi.fn();
+      const observationDigest = "a".repeat(64);
+      const securityReceiptToken = createSignedSecurityReceipt({
+        attemptId: "attempt-1",
+        digest: observationDigest,
+        expiresAt: Date.now() + 60_000,
+        formId: FORM_ID,
+        publicId: "test-public-id",
+      });
+      const txInsert = vi.fn(() => ({
+        values: vi.fn(async () => undefined),
+      }));
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                  collectionExpiresAt: new Date(Date.now() + 60_000),
+                  observationDigestJson: { d: observationDigest },
+                  consumedAt: new Date(),
+                  finalizedAt: new Date(),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            securityVerificationToken: securityReceiptToken,
+          }),
+        },
+      );
+
+      expect(res.status).toBe(403);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security verification token",
+      });
+      expect(txUpdate).not.toHaveBeenCalled();
       transactionSpy.mockRestore();
     },
     ROUTE_REGRESSION_TEST_TIMEOUT_MS,
@@ -986,7 +1772,7 @@ describe("R3-H3: hCaptcha is verified before public submit work", () => {
           ],
           captchaToken: "invalid-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "fake-security-token",
         }),
       },
     );
@@ -1134,7 +1920,7 @@ describe("R3-M21: password protected public submit fails closed", () => {
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1202,7 +1988,7 @@ describe("R3-M21: password protected public submit fails closed", () => {
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1587,7 +2373,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1655,7 +2441,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1711,7 +2497,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1961,11 +2747,10 @@ describe("R4-H1: password protected public GET gates form body", () => {
         id: FORM_ID,
         isPasswordProtected: true,
       },
-      structure: {
-        settings: { require_fingerprint: true },
-      },
+      structure: { settings: { allow_edit_responses: false } },
       plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
     });
+    expect(JSON.stringify(body.structure)).not.toContain("require_fingerprint");
     expect(body.structure).not.toHaveProperty("access_control");
     expect(verifySessionJwt).toHaveBeenCalledWith("verified-jwt", {
       formId: FORM_ID,
@@ -2200,7 +2985,7 @@ describe("PWR-2R2: persistent public password grant generations", () => {
           responses: [],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -2386,7 +3171,7 @@ describe("PWR-2R2: persistent public password grant generations", () => {
           responses: [],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );

@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 let structureData: {
   structure: {
     version: number;
-    settings: { require_fingerprint: boolean };
+    settings: Record<string, unknown>;
     appearance?: FormAppearance;
   };
 };
@@ -207,7 +207,7 @@ describe("FormAppearanceSettings", () => {
     structureData = {
       structure: {
         version: 1,
-        settings: { require_fingerprint: true },
+        settings: {},
         appearance: {
           theme: {
             primary_color: "#ffffff",

@@ -115,7 +115,7 @@ export function ResponseExport({ formId }: ResponseExportProps) {
           disabled={isExporting}
           className="h-3.5 w-3.5"
         />
-        fingerprint列を含める
+        識別補助列を含める
       </label>
       <Button
         variant="outline"

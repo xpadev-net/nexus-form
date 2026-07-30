@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
 let structureData: {
   structure: {
     version: number;
-    settings: { require_fingerprint: boolean };
+    settings: Record<string, unknown>;
     confirmation?: unknown;
     notifications?: unknown;
   };
@@ -198,7 +198,7 @@ describe("FormPostSubmitSettings", () => {
     structureData = {
       structure: {
         version: 1,
-        settings: { require_fingerprint: true },
+        settings: {},
         confirmation: {
           title: "Thanks",
           message: "Done",

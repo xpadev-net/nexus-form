@@ -15,7 +15,6 @@ export type FormStatus = z.infer<typeof FormStatus>;
 // フォーム設定スキーマ
 export const FormSettingsSchema = z.object({
   allow_edit_responses: z.boolean().default(false),
-  require_fingerprint: z.boolean().optional(),
   privacy_notice: z
     .string()
     .max(1000, "プライバシー注意書きは1000文字以内で入力してください")

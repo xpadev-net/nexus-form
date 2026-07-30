@@ -142,7 +142,6 @@ describe("PATCH /:id/settings/responses", () => {
       body: JSON.stringify({
         allowEdit: true,
         maxResponses: 100,
-        requireFingerprint: true,
       }),
     });
 
@@ -170,7 +169,6 @@ describe("PATCH /:id/settings/responses", () => {
       version: 2,
       settings: {
         allow_edit_responses: true,
-        require_fingerprint: true,
         response_limit: {
           enabled: true,
           max_responses: 100,
@@ -180,7 +178,7 @@ describe("PATCH /:id/settings/responses", () => {
     });
   });
 
-  it("persists require_fingerprint false when fingerprint collection is disabled", async () => {
+  it("does not add removed fingerprint toggle when updating response settings", async () => {
     mocks.getFormStructure.mockResolvedValue({
       version: 2,
       settings: {
@@ -195,7 +193,6 @@ describe("PATCH /:id/settings/responses", () => {
       body: JSON.stringify({
         allowEdit: true,
         maxResponses: null,
-        requireFingerprint: false,
       }),
     });
 
@@ -207,9 +204,25 @@ describe("PATCH /:id/settings/responses", () => {
       version: 2,
       settings: {
         allow_edit_responses: true,
-        require_fingerprint: false,
       },
     });
+  });
+
+  it("rejects the removed fingerprint toggle field in response settings updates", async () => {
+    const { formsDetailRouter } = await import("../routes/forms-detail");
+
+    const res = await formsDetailRouter.request("/form-1/settings/responses", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        allowEdit: true,
+        maxResponses: null,
+        requireFingerprint: false,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
   it("removes the response limit when the payload requests unlimited responses", async () => {
@@ -231,7 +244,6 @@ describe("PATCH /:id/settings/responses", () => {
       body: JSON.stringify({
         allowEdit: false,
         maxResponses: 0,
-        requireFingerprint: true,
       }),
     });
 
@@ -243,7 +255,6 @@ describe("PATCH /:id/settings/responses", () => {
       version: 2,
       settings: {
         allow_edit_responses: false,
-        require_fingerprint: true,
       },
     });
   });
@@ -268,7 +279,6 @@ describe("PATCH /:id/settings/responses", () => {
           body: JSON.stringify({
             allowEdit: true,
             maxResponses: null,
-            requireFingerprint: false,
           }),
         }),
       );
