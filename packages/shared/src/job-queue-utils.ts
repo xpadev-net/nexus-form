@@ -56,8 +56,8 @@ export interface QueueWithJobLookupLike<TJobData> {
  * if the triggering mutation must be observed after the in-flight job.
  */
 export type AddJobWithCleanupResult =
-  | { outcome: "added" }
-  | { outcome: "delayed-job-state-changed" };
+  | { existingJobState?: unknown; outcome: "added" }
+  | { existingJobState?: unknown; outcome: "delayed-job-state-changed" };
 
 /**
  * Removes a failed/completed duplicate job before enqueueing a replacement with the same jobId.
@@ -107,6 +107,7 @@ export async function addJobWithCleanup<TJobData>(
       jobId: params.jobId,
     });
     return {
+      existingJobState: state,
       outcome: delayedJobStateChanged ? "delayed-job-state-changed" : "added",
     };
   }

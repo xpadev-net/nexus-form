@@ -158,6 +158,12 @@ async function markResponseLinkAnalysisDirty(
     reason: "response-submitted" | "response-deleted" | "manual";
   },
 ): Promise<void> {
+  await addJobWithCleanup(queue, {
+    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+    jobData,
+    jobId: buildResponseLinkAnalysisDirtyJobId(jobData.formId),
+    jobName: jobData.reason,
+  });
   try {
     await getResponseLinkAnalysisDirtyClient().set(
       getResponseLinkAnalysisDirtyKey(jobData.formId),
@@ -175,12 +181,6 @@ async function markResponseLinkAnalysisDirty(
       },
     );
   }
-  await addJobWithCleanup(queue, {
-    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
-    jobData,
-    jobId: buildResponseLinkAnalysisDirtyJobId(jobData.formId),
-    jobName: jobData.reason,
-  });
 }
 
 /**

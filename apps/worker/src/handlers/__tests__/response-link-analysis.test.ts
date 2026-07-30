@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   txInsertedRows: [] as Array<{ table: unknown; values: unknown }>,
   queueClose: vi.fn(async () => undefined),
   queueAdd: vi.fn(async () => undefined),
-  queueGetJob: vi.fn(async () => null),
+  queueGetJob: vi.fn(async (): Promise<unknown> => null),
   redisDel: vi.fn(async () => 0),
   redisEval: vi.fn(async () => 0),
   redisGet: vi.fn(async () => null as string | null),
@@ -607,6 +607,31 @@ describe("handleResponseLinkAnalysis", () => {
       } as Job<ResponseLinkAnalysisJobData>),
     ).rejects.toThrow("queue unavailable");
 
+    expect(mocks.redisDel).not.toHaveBeenCalled();
+    expect(mocks.redisEval).not.toHaveBeenCalled();
+  });
+
+  it("leaves dirty marker when the fixed follow-up is already active", async () => {
+    mocks.redisGet.mockResolvedValueOnce("marker-1");
+    mocks.queueGetJob.mockResolvedValueOnce({
+      getState: vi.fn(async () => "active"),
+      remove: vi.fn(async () => undefined),
+    });
+
+    const result = await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    expect(result.linkCount).toBe(0);
+    expect(mocks.queueAdd).toHaveBeenCalledWith(
+      "response-submitted",
+      { formId: "form-1", reason: "response-submitted" },
+      {
+        delay: 10_000,
+        jobId: "response-link-analysis.form-1.follow-up",
+      },
+    );
     expect(mocks.redisDel).not.toHaveBeenCalled();
     expect(mocks.redisEval).not.toHaveBeenCalled();
   });

@@ -26,7 +26,10 @@ describe("addJobWithCleanup", () => {
         jobId: "response-link-analysis.form-1",
         jobName: "response-submitted",
       }),
-    ).resolves.toEqual({ outcome: "delayed-job-state-changed" });
+    ).resolves.toEqual({
+      existingJobState: "delayed",
+      outcome: "delayed-job-state-changed",
+    });
     expect(queue.add).toHaveBeenCalledWith(
       "response-submitted",
       { formId: "form-1" },

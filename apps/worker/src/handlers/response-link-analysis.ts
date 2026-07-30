@@ -154,13 +154,25 @@ async function getResponseLinkAnalysisDirtyMarker(
   );
 }
 
-async function enqueueDirtyResponseLinkFollowUp(formId: string): Promise<void> {
-  await addJobWithCleanup(getResponseLinkAnalysisQueue(), {
+function isActiveJobState(state: unknown): boolean {
+  return state === "active" || state === "waiting-children";
+}
+
+async function enqueueDirtyResponseLinkFollowUp(
+  formId: string,
+): Promise<boolean> {
+  const queue = getResponseLinkAnalysisQueue();
+  const jobId = buildResponseLinkAnalysisJobId(formId, "follow-up");
+  const result = await addJobWithCleanup(queue, {
     delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
     jobData: { formId, reason: "response-submitted" },
-    jobId: buildResponseLinkAnalysisJobId(formId, "follow-up"),
+    jobId,
     jobName: "response-submitted",
   });
+  return (
+    !isActiveJobState(result.existingJobState) &&
+    result.outcome !== "delayed-job-state-changed"
+  );
 }
 
 async function acquireFormAnalysisLock(
@@ -848,8 +860,12 @@ export async function handleResponseLinkAnalysis(
   );
   const dirtyMarker = await getResponseLinkAnalysisDirtyMarker(data.formId);
   if (dirtyMarker !== null) {
-    await enqueueDirtyResponseLinkFollowUp(data.formId);
-    await consumeResponseLinkAnalysisDirty(data.formId, dirtyMarker);
+    const hasFutureHandler = await enqueueDirtyResponseLinkFollowUp(
+      data.formId,
+    );
+    if (hasFutureHandler) {
+      await consumeResponseLinkAnalysisDirty(data.formId, dirtyMarker);
+    }
   }
   return result;
 }
