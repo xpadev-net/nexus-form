@@ -11,7 +11,12 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { AlertTriangle, Loader2, Network } from "lucide-react";
-import { type PointerEvent, useMemo, useState } from "react";
+import {
+  type KeyboardEvent,
+  type PointerEvent,
+  useMemo,
+  useState,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { client, rpc } from "@/lib/api";
@@ -57,6 +62,8 @@ const graphHeight = 760;
 const graphViewportWidth = 900;
 const graphViewportHeight = 520;
 const graphPadding = 32;
+const graphFocusMargin = 56;
+const graphKeyboardPanStep = 56;
 const initialGraphOrigin = {
   x: (graphWidth - graphViewportWidth) / 2,
   y: (graphHeight - graphViewportHeight) / 2,
@@ -322,6 +329,14 @@ type ResponseRelationGraphCanvasProps = {
   onSelectResponse: (responseId: string) => void;
 };
 
+function graphScaleFromBounds(bounds: DOMRect): number {
+  if (bounds.width <= 0 || bounds.height <= 0) return 0;
+  return Math.min(
+    bounds.width / graphViewportWidth,
+    bounds.height / graphViewportHeight,
+  );
+}
+
 export function ResponseRelationGraphCanvas({
   layout,
   selectedEdge,
@@ -343,6 +358,65 @@ export function ResponseRelationGraphCanvas({
     x: Math.min(graphWidth - graphViewportWidth, Math.max(0, x)),
     y: Math.min(graphHeight - graphViewportHeight, Math.max(0, y)),
   });
+
+  const keepGraphRectVisible = (rect: {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  }) => {
+    setViewBoxOrigin((currentOrigin) => {
+      let nextX = currentOrigin.x;
+      let nextY = currentOrigin.y;
+
+      if (rect.minX < currentOrigin.x + graphFocusMargin) {
+        nextX = rect.minX - graphFocusMargin;
+      } else if (
+        rect.maxX >
+        currentOrigin.x + graphViewportWidth - graphFocusMargin
+      ) {
+        nextX = rect.maxX - graphViewportWidth + graphFocusMargin;
+      }
+
+      if (rect.minY < currentOrigin.y + graphFocusMargin) {
+        nextY = rect.minY - graphFocusMargin;
+      } else if (
+        rect.maxY >
+        currentOrigin.y + graphViewportHeight - graphFocusMargin
+      ) {
+        nextY = rect.maxY - graphViewportHeight + graphFocusMargin;
+      }
+
+      const nextOrigin = clampViewBoxOrigin(nextX, nextY);
+      if (
+        nextOrigin.x === currentOrigin.x &&
+        nextOrigin.y === currentOrigin.y
+      ) {
+        return currentOrigin;
+      }
+      return nextOrigin;
+    });
+  };
+
+  const keepPointVisible = (x: number, y: number) => {
+    keepGraphRectVisible({ minX: x, minY: y, maxX: x, maxY: y });
+  };
+
+  const panByKeyboard = (event: KeyboardEvent<HTMLFieldSetElement>) => {
+    const panDeltaByKey: Record<string, { x: number; y: number } | undefined> =
+      {
+        ArrowDown: { x: 0, y: graphKeyboardPanStep },
+        ArrowLeft: { x: -graphKeyboardPanStep, y: 0 },
+        ArrowRight: { x: graphKeyboardPanStep, y: 0 },
+        ArrowUp: { x: 0, y: -graphKeyboardPanStep },
+      };
+    const delta = panDeltaByKey[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    setViewBoxOrigin((currentOrigin) =>
+      clampViewBoxOrigin(currentOrigin.x + delta.x, currentOrigin.y + delta.y),
+    );
+  };
 
   const startPanning = (event: PointerEvent<SVGSVGElement>) => {
     if (
@@ -366,12 +440,10 @@ export function ResponseRelationGraphCanvas({
     if (!panStart) return;
     if (event.pointerId !== panStart.pointerId) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-    const dx =
-      ((event.clientX - panStart.clientX) * graphViewportWidth) / bounds.width;
-    const dy =
-      ((event.clientY - panStart.clientY) * graphViewportHeight) /
-      bounds.height;
+    const graphScale = graphScaleFromBounds(bounds);
+    if (graphScale <= 0) return;
+    const dx = (event.clientX - panStart.clientX) / graphScale;
+    const dy = (event.clientY - panStart.clientY) / graphScale;
     setViewBoxOrigin(
       clampViewBoxOrigin(panStart.originX - dx, panStart.originY - dy),
     );
@@ -387,7 +459,11 @@ export function ResponseRelationGraphCanvas({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-md border bg-background">
+    <fieldset
+      aria-label="回答の関係グラフの表示位置"
+      className="relative overflow-hidden rounded-md border bg-background"
+      onKeyDown={panByKeyboard}
+    >
       <svg
         role="img"
         aria-label="回答の関係グラフ"
@@ -436,6 +512,26 @@ export function ResponseRelationGraphCanvas({
                   onSelectEdge(edge);
                 }}
                 onFocus={() => onHoverEdge(edge)}
+                onFocusCapture={() =>
+                  keepGraphRectVisible({
+                    minX: Math.min(
+                      source.x ?? graphWidth / 2,
+                      target.x ?? graphWidth / 2,
+                    ),
+                    minY: Math.min(
+                      source.y ?? graphHeight / 2,
+                      target.y ?? graphHeight / 2,
+                    ),
+                    maxX: Math.max(
+                      source.x ?? graphWidth / 2,
+                      target.x ?? graphWidth / 2,
+                    ),
+                    maxY: Math.max(
+                      source.y ?? graphHeight / 2,
+                      target.y ?? graphHeight / 2,
+                    ),
+                  })
+                }
                 onKeyDown={(event) => {
                   if (event.key !== " ") return;
                   event.preventDefault();
@@ -475,6 +571,9 @@ export function ResponseRelationGraphCanvas({
                 event.preventDefault();
                 onSelectResponse(node.responseId);
               }}
+              onFocus={() => {
+                keepPointVisible(layoutNode.x, layoutNode.y);
+              }}
             >
               <title>
                 {responseShortId(node.responseId)} /{" "}
@@ -504,7 +603,7 @@ export function ResponseRelationGraphCanvas({
           );
         })}
       </svg>
-    </div>
+    </fieldset>
   );
 }
 
