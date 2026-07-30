@@ -45,13 +45,13 @@ import {
   type FormConfirmation,
   SafeConfirmationUrlSchema,
 } from "@/types/validation/form";
+import { CaptchaWidget, type CaptchaWidgetHandle } from "./captcha-widget";
 import {
   FormAppearanceSurface,
   normalizeFormAppearance,
 } from "./form-appearance-surface";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
-import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
 import { PasswordProtectionGate } from "./password-protection-gate";
 
 const fetchPublicForm = (publicId: string) =>
@@ -98,7 +98,7 @@ function isFormSecurityBypassEnabledForDevelopment(): boolean {
   return import.meta.env.DEV && formSecurityBypassFlag === "true";
 }
 
-function isHCaptchaBypassEnabledForDevelopment(): boolean {
+function isCaptchaBypassEnabledForDevelopment(): boolean {
   return (
     isFormSecurityBypassEnabledForDevelopment() ||
     (import.meta.env.DEV && import.meta.env.VITE_DISABLE_HCAPTCHA === "true")
@@ -510,7 +510,7 @@ function PublicFormPageInner() {
   );
   const { answers, clearAnswers } = useFormResponse();
 
-  const captchaRef = useRef<HCaptchaWidgetHandle>(null);
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
   const submitLockRef = useRef(false);
   const publicSubmitTelemetryTokenStaleRef = useRef(false);
   const { fingerprints, collect: collectFingerprints } = useFingerprint({
@@ -532,7 +532,7 @@ function PublicFormPageInner() {
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
   const formSecurityBypassEnabled = isFormSecurityBypassEnabledForDevelopment();
-  const hCaptchaBypassEnabled = isHCaptchaBypassEnabledForDevelopment();
+  const captchaBypassEnabled = isCaptchaBypassEnabledForDevelopment();
   const publicFormBodyReady = Boolean(
     formData?.plateContent !== null && formData?.structure !== null,
   );
@@ -610,13 +610,13 @@ function PublicFormPageInner() {
           throw new Error("回答データの形式が不正です");
         }
 
-        // hCaptchaトークンの確認
-        const captchaToken = hCaptchaBypassEnabled
+        // CAPTCHAトークンの確認
+        const captchaToken = captchaBypassEnabled
           ? formSecurityBypassToken
           : state.captchaToken;
         if (!captchaToken) {
           throw new Error(
-            "セキュリティ確認が完了していません。hCaptchaを完了してください。",
+            "セキュリティ確認が完了していません。CAPTCHAを完了してください。",
           );
         }
 
@@ -732,11 +732,11 @@ function PublicFormPageInner() {
         });
         clearAnswers();
 
-        // hCaptchaをリセット（再送信時に再度認証が必要）
+        // CAPTCHAをリセット（再送信時に再度認証が必要）
         captchaRef.current?.reset();
       } catch (submitError) {
         submitLockRef.current = false;
-        if (!hCaptchaBypassEnabled) {
+        if (!captchaBypassEnabled) {
           dispatch({ type: "captcha-expired" });
           captchaRef.current?.reset();
         }
@@ -766,7 +766,7 @@ function PublicFormPageInner() {
       state.captchaToken,
       state.submitted,
       formSecurityBypassEnabled,
-      hCaptchaBypassEnabled,
+      captchaBypassEnabled,
       fingerprints,
       publicSubmitTelemetryToken,
       refetchPublicSubmitTelemetryToken,
@@ -860,8 +860,8 @@ function PublicFormPageInner() {
         appearance={appearance}
         onSubmitRequest={(data) => void handleSubmitRequest(data)}
         preSubmitSlot={
-          hCaptchaBypassEnabled ? null : (
-            <HCaptchaWidget
+          captchaBypassEnabled ? null : (
+            <CaptchaWidget
               ref={captchaRef}
               onVerify={handleCaptchaVerify}
               onExpire={handleCaptchaExpire}
@@ -869,7 +869,7 @@ function PublicFormPageInner() {
           )
         }
         isSubmitting={state.isSubmitting}
-        captchaReady={hCaptchaBypassEnabled || !!state.captchaToken}
+        captchaReady={captchaBypassEnabled || !!state.captchaToken}
         error={state.error}
         success={null}
         onErrorChange={(message) => dispatch({ type: "set-error", message })}

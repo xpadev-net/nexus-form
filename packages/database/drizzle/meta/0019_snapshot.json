@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "0306326c-df8d-444e-b0c3-c84fb4335934",
-  "prevId": "8ac4acfd-5f61-46dd-8f39-2ee6ef45147f",
+  "id": "40421728-56f5-46da-8b9c-e2ed60af615f",
+  "prevId": "0306326c-df8d-444e-b0c3-c84fb4335934",
   "tables": {
     "ApiToken": {
       "name": "ApiToken",
@@ -2513,6 +2513,53 @@
       },
       "checkConstraint": {}
     },
+    "ResponseLinkAnalysisLock": {
+      "name": "ResponseLinkAnalysisLock",
+      "columns": {
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "jobId": {
+          "name": "jobId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lockedAt": {
+          "name": "lockedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "ResponseLinkAnalysisLock_formId_Form_id_fk": {
+          "name": "ResponseLinkAnalysisLock_formId_Form_id_fk",
+          "tableFrom": "ResponseLinkAnalysisLock",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ResponseLinkAnalysisLock_formId": {
+          "name": "ResponseLinkAnalysisLock_formId",
+          "columns": ["formId"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "ResponseLinkAnalysisRun": {
       "name": "ResponseLinkAnalysisRun",
       "columns": {
@@ -2995,20 +3042,20 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "RSGM_group_fk": {
-          "name": "RSGM_group_fk",
-          "tableFrom": "ResponseSuspicionGroupMember",
-          "tableTo": "ResponseSuspicionGroup",
-          "columnsFrom": ["groupId"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "ResponseSuspicionGroupMember_responseId_FormResponse_id_fk": {
           "name": "ResponseSuspicionGroupMember_responseId_FormResponse_id_fk",
           "tableFrom": "ResponseSuspicionGroupMember",
           "tableTo": "FormResponse",
           "columnsFrom": ["responseId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "RSGM_group_fk": {
+          "name": "RSGM_group_fk",
+          "tableFrom": "ResponseSuspicionGroupMember",
+          "tableTo": "ResponseSuspicionGroup",
+          "columnsFrom": ["groupId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

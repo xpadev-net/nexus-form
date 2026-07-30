@@ -21,10 +21,7 @@ CREATE TABLE `FingerprintCollectionAttempt` (
 	CONSTRAINT `FingerprintCollectionAttempt_collectionTokenHash_unique` UNIQUE(`collectionTokenHash`)
 );
 --> statement-breakpoint
-ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FCA_formId_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FCA_consumedResponseId_fk` FOREIGN KEY (`consumedResponseId`) REFERENCES `FormResponse`(`id`) ON DELETE set null ON UPDATE no action;
---> statement-breakpoint
-CREATE INDEX `FingerprintCollectionAttempt_expiresAt_idx` ON `FingerprintCollectionAttempt` (`challengeExpiresAt`,`collectionExpiresAt`);
---> statement-breakpoint
+ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FCA_formId_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FingerprintCollectionAttempt` ADD CONSTRAINT `FCA_consumedResponseId_fk` FOREIGN KEY (`consumedResponseId`) REFERENCES `FormResponse`(`id`) ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX `FingerprintCollectionAttempt_expiresAt_idx` ON `FingerprintCollectionAttempt` (`challengeExpiresAt`,`collectionExpiresAt`);--> statement-breakpoint
 CREATE INDEX `FingerprintCollectionAttempt_consumedAt_idx` ON `FingerprintCollectionAttempt` (`consumedAt`);

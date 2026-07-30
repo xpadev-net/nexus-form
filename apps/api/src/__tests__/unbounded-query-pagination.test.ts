@@ -158,6 +158,7 @@ vi.mock("../lib/forms/validation-results", () => ({
 }));
 
 vi.mock("../lib/queues", () => ({
+  enqueueResponseLinkAnalysisJob: vi.fn(() => Promise.resolve()),
   getValidationQueue: vi.fn(),
   isValidServiceName: vi.fn(() => true),
 }));

@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "0306326c-df8d-444e-b0c3-c84fb4335934",
-  "prevId": "8ac4acfd-5f61-46dd-8f39-2ee6ef45147f",
+  "id": "b8f3eda2-829d-4eb9-b823-e1ca15f79fde",
+  "prevId": "40421728-56f5-46da-8b9c-e2ed60af615f",
   "tables": {
     "ApiToken": {
       "name": "ApiToken",
@@ -665,6 +665,180 @@
         }
       },
       "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FingerprintCollectionAttempt": {
+      "name": "FingerprintCollectionAttempt",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challengeTokenHash": {
+          "name": "challengeTokenHash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "collectionTokenHash": {
+          "name": "collectionTokenHash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "observedIpHash": {
+          "name": "observedIpHash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userAgentHash": {
+          "name": "userAgentHash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "collectorVersion": {
+          "name": "collectorVersion",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exchangeVersion": {
+          "name": "exchangeVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exchangeNonce": {
+          "name": "exchangeNonce",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "serverContextJson": {
+          "name": "serverContextJson",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "observationDigestJson": {
+          "name": "observationDigestJson",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challengeExpiresAt": {
+          "name": "challengeExpiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "collectionExpiresAt": {
+          "name": "collectionExpiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "finalizedAt": {
+          "name": "finalizedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "consumedAt": {
+          "name": "consumedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "consumedResponseId": {
+          "name": "consumedResponseId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "FingerprintCollectionAttempt_expiresAt_idx": {
+          "name": "FingerprintCollectionAttempt_expiresAt_idx",
+          "columns": ["challengeExpiresAt", "collectionExpiresAt"],
+          "isUnique": false
+        },
+        "FingerprintCollectionAttempt_consumedAt_idx": {
+          "name": "FingerprintCollectionAttempt_consumedAt_idx",
+          "columns": ["consumedAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FCA_formId_fk": {
+          "name": "FCA_formId_fk",
+          "tableFrom": "FingerprintCollectionAttempt",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FCA_consumedResponseId_fk": {
+          "name": "FCA_consumedResponseId_fk",
+          "tableFrom": "FingerprintCollectionAttempt",
+          "tableTo": "FormResponse",
+          "columnsFrom": ["consumedResponseId"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FingerprintCollectionAttempt_id": {
+          "name": "FingerprintCollectionAttempt_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "FingerprintCollectionAttempt_challengeTokenHash_unique": {
+          "name": "FingerprintCollectionAttempt_challengeTokenHash_unique",
+          "columns": ["challengeTokenHash"]
+        },
+        "FingerprintCollectionAttempt_collectionTokenHash_unique": {
+          "name": "FingerprintCollectionAttempt_collectionTokenHash_unique",
+          "columns": ["collectionTokenHash"]
+        }
+      },
       "checkConstraint": {}
     },
     "FingerprintDetail": {
@@ -2513,6 +2687,53 @@
       },
       "checkConstraint": {}
     },
+    "ResponseLinkAnalysisLock": {
+      "name": "ResponseLinkAnalysisLock",
+      "columns": {
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "jobId": {
+          "name": "jobId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lockedAt": {
+          "name": "lockedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "ResponseLinkAnalysisLock_formId_Form_id_fk": {
+          "name": "ResponseLinkAnalysisLock_formId_Form_id_fk",
+          "tableFrom": "ResponseLinkAnalysisLock",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ResponseLinkAnalysisLock_formId": {
+          "name": "ResponseLinkAnalysisLock_formId",
+          "columns": ["formId"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "ResponseLinkAnalysisRun": {
       "name": "ResponseLinkAnalysisRun",
       "columns": {
@@ -2995,20 +3216,20 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "RSGM_group_fk": {
-          "name": "RSGM_group_fk",
-          "tableFrom": "ResponseSuspicionGroupMember",
-          "tableTo": "ResponseSuspicionGroup",
-          "columnsFrom": ["groupId"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "ResponseSuspicionGroupMember_responseId_FormResponse_id_fk": {
           "name": "ResponseSuspicionGroupMember_responseId_FormResponse_id_fk",
           "tableFrom": "ResponseSuspicionGroupMember",
           "tableTo": "FormResponse",
           "columnsFrom": ["responseId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "RSGM_group_fk": {
+          "name": "RSGM_group_fk",
+          "tableFrom": "ResponseSuspicionGroupMember",
+          "tableTo": "ResponseSuspicionGroup",
+          "columnsFrom": ["groupId"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

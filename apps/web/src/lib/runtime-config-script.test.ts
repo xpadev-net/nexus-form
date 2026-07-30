@@ -11,21 +11,36 @@ describe("createRuntimeConfig", () => {
       createRuntimeConfig({
         VITE_API_URL: "https://api.example.com",
         VITE_BASE_URL: "https://form.example.com",
+        VITE_CAPTCHA_PROVIDER: "turnstile",
         VITE_FORM_SECURITY_DEV_BYPASS: "false",
         VITE_HCAPTCHA_SITE_KEY: "10000000-ffff-ffff-ffff-000000000001",
         VITE_TELEMETRY_HOST: "telemetry.example.com",
         VITE_TELEMETRY_V4_HOST: "ipv4.example.com",
         VITE_TELEMETRY_V6_HOST: "ipv6.example.com",
+        VITE_TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
       }),
     ).toEqual({
       apiUrl: "https://api.example.com",
       baseUrl: "https://form.example.com",
+      captchaProvider: "turnstile",
       formSecurityDevBypass: "false",
       hcaptchaSiteKey: "10000000-ffff-ffff-ffff-000000000001",
       telemetryHost: "telemetry.example.com",
       telemetryV4Host: "ipv4.example.com",
       telemetryV6Host: "ipv6.example.com",
+      turnstileSiteKey: "1x00000000000000000000AA",
     });
+  });
+
+  it("leaves missing captcha provider empty so runtime fallback can apply", () => {
+    expect(createRuntimeConfig({}).captchaProvider).toBe("");
+  });
+
+  it("normalizes an invalid captcha provider to the empty runtime fallback", () => {
+    expect(
+      createRuntimeConfig({ VITE_CAPTCHA_PROVIDER: "turnstyle" })
+        .captchaProvider,
+    ).toBe("");
   });
 });
 
@@ -43,6 +58,7 @@ describe("createRuntimeConfigScript", () => {
 
     expect(windowShim.__NEXUS_FORM_CONFIG__).toEqual(
       expect.objectContaining({
+        captchaProvider: "",
         hcaptchaSiteKey: "10000000-ffff-ffff-ffff-000000000001",
         telemetryHost: "telemetry.example.com",
         telemetryV4Host: "ipv4.example.com",

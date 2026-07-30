@@ -102,7 +102,7 @@ const requiredEnvVarGroups = [
   },
   {
     label: "フロントエンド設定",
-    vars: ["VITE_API_URL", "VITE_BASE_URL", "VITE_HCAPTCHA_SITE_KEY"],
+    vars: ["VITE_API_URL", "VITE_BASE_URL", "VITE_CAPTCHA_PROVIDER"],
   },
   {
     label: "データベース / Redis",
@@ -139,8 +139,8 @@ const requiredEnvVarGroups = [
     ],
   },
   {
-    label: "hCaptcha / セッション",
-    vars: ["HCAPTCHA_SECRET_KEY", "SESSION_ALIAS_SALT"],
+    label: "CAPTCHA / セッション",
+    vars: ["CAPTCHA_PROVIDER", "SESSION_ALIAS_SALT"],
   },
 ];
 
@@ -157,6 +157,7 @@ const optionalEnvVarGroups = [
       "API_SHUTDOWN_TIMEOUT_MS",
       "TRUSTED_PROXY_COUNT",
       "HCAPTCHA_EXPECTED_HOSTNAMES",
+      "TURNSTILE_EXPECTED_HOSTNAMES",
       "INVITE_BASE_URL",
       "S3_REGION",
     ],
@@ -266,6 +267,8 @@ const optionalEnvVarGroups = [
       "VITE_BRAND_PRIVACY_URL",
       "VITE_BRAND_COPYRIGHT",
       "VITE_BRAND_HOMEPAGE_URL",
+      "VITE_HCAPTCHA_SITE_KEY",
+      "VITE_TURNSTILE_SITE_KEY",
       "VITE_TELEMETRY_HOST",
       "VITE_TELEMETRY_V4_HOST",
       "VITE_TELEMETRY_V6_HOST",
@@ -279,6 +282,25 @@ const securityBypassEnvVars = new Set([
   "DISABLE_HCAPTCHA",
   "VITE_DISABLE_HCAPTCHA",
 ]);
+
+// check-env.mjsはbuild前にも実行されるため、TypeScriptのshared moduleを直接importしません。
+// packages/shared/src/captcha.ts の CAPTCHA_PROVIDERS と同期してください。
+const allowedCaptchaProviders = new Set(["hcaptcha", "turnstile"]);
+
+function readCaptchaProvider(envName, fallback = "hcaptcha") {
+  const trimmedValue = process.env[envName]?.trim();
+  return trimmedValue || fallback;
+}
+
+function validateRequiredEnvVar(envVar, label) {
+  if (process.env[envVar]) {
+    console.log(`  ✅ ${envVar}: 設定済み`);
+    return;
+  }
+
+  console.log(`  ❌ ${envVar}: 未設定 (${label})`);
+  hasErrors = true;
+}
 
 console.log("🔍 環境変数チェックを開始します...\n");
 
@@ -319,6 +341,49 @@ for (const group of optionalEnvVarGroups) {
         console.log(`  ⚠️  ${envVar}: 未設定 (オプション)`);
       }
     }
+  }
+}
+
+console.log("\n📋 CAPTCHA provider 整合性:");
+const serverCaptchaProvider = readCaptchaProvider("CAPTCHA_PROVIDER");
+const frontendCaptchaProvider = readCaptchaProvider("VITE_CAPTCHA_PROVIDER");
+
+if (!allowedCaptchaProviders.has(serverCaptchaProvider)) {
+  console.log(`  ❌ CAPTCHA_PROVIDER: 不正な値 (${serverCaptchaProvider})`);
+  hasErrors = true;
+} else {
+  console.log(`  ✅ CAPTCHA_PROVIDER: ${serverCaptchaProvider}`);
+}
+
+if (!allowedCaptchaProviders.has(frontendCaptchaProvider)) {
+  console.log(
+    `  ❌ VITE_CAPTCHA_PROVIDER: 不正な値 (${frontendCaptchaProvider})`,
+  );
+  hasErrors = true;
+} else {
+  console.log(`  ✅ VITE_CAPTCHA_PROVIDER: ${frontendCaptchaProvider}`);
+}
+
+if (serverCaptchaProvider !== frontendCaptchaProvider) {
+  console.log(
+    "  ❌ CAPTCHA_PROVIDER と VITE_CAPTCHA_PROVIDER が一致していません",
+  );
+  hasErrors = true;
+}
+
+if (
+  allowedCaptchaProviders.has(serverCaptchaProvider) &&
+  serverCaptchaProvider === frontendCaptchaProvider
+) {
+  if (serverCaptchaProvider === "turnstile") {
+    validateRequiredEnvVar("TURNSTILE_SECRET_KEY", "Turnstile secret key");
+    validateRequiredEnvVar(
+      "VITE_TURNSTILE_SITE_KEY",
+      "Turnstile site key",
+    );
+  } else {
+    validateRequiredEnvVar("HCAPTCHA_SECRET_KEY", "hCaptcha secret key");
+    validateRequiredEnvVar("VITE_HCAPTCHA_SITE_KEY", "hCaptcha site key");
   }
 }
 

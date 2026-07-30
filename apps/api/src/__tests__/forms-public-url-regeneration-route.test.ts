@@ -204,6 +204,7 @@ vi.mock("../lib/telemetry/tokens", () => ({
 }));
 
 vi.mock("../lib/queues", () => ({
+  enqueueResponseLinkAnalysisJob: vi.fn(() => Promise.resolve()),
   getSheetsSyncQueue: vi.fn(() => ({ add: mocks.addSheetsSyncJob })),
   getValidationQueue: vi.fn(() => ({ add: mocks.addValidationJob })),
   isValidServiceName: vi.fn(() => true),

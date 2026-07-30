@@ -29,6 +29,40 @@ const mocks = vi.hoisted(() => {
       tableName: "formResponse",
     },
     formValidationRule: {},
+    responseLinkAnalysisRun: {
+      completedAt: "responseLinkAnalysisRun.completedAt",
+      formId: "responseLinkAnalysisRun.formId",
+      id: "responseLinkAnalysisRun.id",
+      metadataJson: "responseLinkAnalysisRun.metadataJson",
+      modelVersion: "responseLinkAnalysisRun.modelVersion",
+      populationSize: "responseLinkAnalysisRun.populationSize",
+      statsVersion: "responseLinkAnalysisRun.statsVersion",
+      status: "responseLinkAnalysisRun.status",
+      tableName: "responseLinkAnalysisRun",
+    },
+    responsePairLink: {
+      responseIdA: "responsePairLink.responseIdA",
+      responseIdB: "responsePairLink.responseIdB",
+      runId: "responsePairLink.runId",
+      strength: "responsePairLink.strength",
+      tableName: "responsePairLink",
+    },
+    responseSuspicionGroup: {
+      groupKey: "responseSuspicionGroup.groupKey",
+      id: "responseSuspicionGroup.id",
+      responseCount: "responseSuspicionGroup.responseCount",
+      runId: "responseSuspicionGroup.runId",
+      strongLinkCount: "responseSuspicionGroup.strongLinkCount",
+      summaryJson: "responseSuspicionGroup.summaryJson",
+      supportLinkCount: "responseSuspicionGroup.supportLinkCount",
+      tableName: "responseSuspicionGroup",
+      technicalConfidence: "responseSuspicionGroup.technicalConfidence",
+    },
+    responseSuspicionGroupMember: {
+      groupId: "responseSuspicionGroupMember.groupId",
+      responseId: "responseSuspicionGroupMember.responseId",
+      tableName: "responseSuspicionGroupMember",
+    },
   };
 
   return {
@@ -36,6 +70,7 @@ const mocks = vi.hoisted(() => {
     db: {
       select: vi.fn(),
       transaction: vi.fn(),
+      update: vi.fn(),
     },
     deleteTables: [] as string[],
     externalValidationResults: [] as Array<Record<string, unknown>>,
@@ -43,6 +78,7 @@ const mocks = vi.hoisted(() => {
     schema,
     tx: {
       delete: vi.fn(),
+      update: vi.fn(),
     },
     whereConditions: [] as Array<unknown>,
   };
@@ -105,6 +141,7 @@ vi.mock("../lib/logger", () => ({
 }));
 
 vi.mock("../lib/queues", () => ({
+  enqueueResponseLinkAnalysisJob: vi.fn(() => Promise.resolve()),
   getValidationQueue: vi.fn(),
   isValidServiceName: vi.fn(() => true),
 }));
@@ -130,6 +167,7 @@ vi.mock("../lib/response-data-json", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
+  asc: vi.fn((field) => ({ op: "asc", field })),
   desc: vi.fn((field) => ({ op: "desc", field })),
   eq: vi.fn((left, right) => ({ op: "eq", left, right })),
   inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
@@ -145,6 +183,7 @@ function selectLimitQuery(result: unknown[]) {
   const query = {
     from: vi.fn(() => query),
     innerJoin: vi.fn(() => query),
+    orderBy: vi.fn(() => query),
     where: vi.fn((condition: unknown) => {
       mocks.whereConditions.push(condition);
       return query;
@@ -157,10 +196,28 @@ function selectLimitQuery(result: unknown[]) {
 function selectWhereQuery(result: unknown[]) {
   const query = {
     from: vi.fn(() => query),
+    innerJoin: vi.fn(() => query),
     where: vi.fn((condition: unknown) => {
       mocks.whereConditions.push(condition);
       return Promise.resolve(result);
     }),
+  };
+  return query;
+}
+
+function selectSuspicionGroupsQuery(result: unknown[]) {
+  let offset = 0;
+  const query = {
+    from: vi.fn(() => query),
+    where: vi.fn(() => query),
+    orderBy: vi.fn(() => query),
+    offset: vi.fn((value: number) => {
+      offset = value;
+      return query;
+    }),
+    limit: vi.fn((value: number) =>
+      Promise.resolve(result.slice(offset, offset + value)),
+    ),
   };
   return query;
 }
@@ -172,6 +229,22 @@ function deleteQuery(tableName: string) {
       return Promise.resolve([{ affectedRows: 1 }]);
     }),
   };
+}
+
+function updateQuery(tableName: string) {
+  return {
+    set: vi.fn((values: unknown) => ({
+      where: vi.fn((condition: unknown) => {
+        mocks.whereConditions.push({ tableName, condition, values });
+        return Promise.resolve([{ affectedRows: 1 }]);
+      }),
+    })),
+  };
+}
+
+async function flushResponseLinkAnalysisSideEffects(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 function tableName(table: unknown): string {
@@ -194,6 +267,9 @@ beforeEach(() => {
   mocks.formAuthRoles.length = 0;
   mocks.whereConditions.length = 0;
   mocks.db.select.mockReset();
+  mocks.db.update.mockImplementation((table: unknown) =>
+    updateQuery(tableName(table)),
+  );
   mocks.db.transaction.mockImplementation(async (callback) =>
     callback(mocks.tx),
   );
@@ -202,6 +278,9 @@ beforeEach(() => {
     mocks.deleteTables.push(name);
     return deleteQuery(name);
   });
+  mocks.tx.update.mockImplementation((table: unknown) =>
+    updateQuery(tableName(table)),
+  );
 });
 
 describe("response deletion API", () => {
@@ -224,6 +303,7 @@ describe("response deletion API", () => {
       selectLimitQuery([{ id: "response-1" }]),
     );
     const router = await importRouter();
+    const { enqueueResponseLinkAnalysisJob } = await import("../lib/queues");
 
     const res = await router.request("/form-1/responses/response-1", {
       method: "DELETE",
@@ -231,6 +311,7 @@ describe("response deletion API", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ ok: true });
+    await flushResponseLinkAnalysisSideEffects();
     expect(mocks.deleteTables).toEqual([
       "fingerprintDetail",
       "externalServiceValidationResult",
@@ -255,6 +336,423 @@ describe("response deletion API", () => {
     expect(mocks.whereConditions).toContainEqual({
       tableName: "formResponse",
       condition: { op: "eq", left: "formResponse.id", right: "response-1" },
+    });
+    expect(mocks.whereConditions).not.toContainEqual(
+      expect.objectContaining({
+        tableName: "responseLinkAnalysisRun",
+        values: { status: "STALE" },
+      }),
+    );
+    expect(enqueueResponseLinkAnalysisJob).toHaveBeenCalledWith({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+  });
+
+  it("keeps the previous response link analysis available when deletion requeue fails", async () => {
+    mocks.db.select.mockReturnValueOnce(
+      selectLimitQuery([{ id: "response-1" }]),
+    );
+    const router = await importRouter();
+    const { enqueueResponseLinkAnalysisJob } = await import("../lib/queues");
+    vi.mocked(enqueueResponseLinkAnalysisJob).mockRejectedValueOnce(
+      new Error("queue unavailable"),
+    );
+
+    const res = await router.request("/form-1/responses/response-1", {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true });
+    await flushResponseLinkAnalysisSideEffects();
+    expect(enqueueResponseLinkAnalysisJob).toHaveBeenCalledWith({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+    expect(mocks.whereConditions).not.toContainEqual(
+      expect.objectContaining({
+        tableName: "responseLinkAnalysisRun",
+        values: { status: "STALE" },
+      }),
+    );
+  });
+
+  it("scans past stale suspicion groups with tied counts using a stable order", async () => {
+    const staleGroups = Array.from({ length: 100 }, (_, index) => ({
+      id: `stale-group-${String(index).padStart(3, "0")}`,
+      groupKey: `stale-${index}`,
+      technicalConfidence: "STRONG",
+      responseCount: 2,
+      strongLinkCount: 1,
+      supportLinkCount: 0,
+      summaryJson: { reasonCodes: ["stale"] },
+    }));
+    const liveGroup = {
+      id: "live-group",
+      groupKey: "live",
+      technicalConfidence: "STRONG",
+      responseCount: 2,
+      strongLinkCount: 1,
+      supportLinkCount: 0,
+      summaryJson: { reasonCodes: ["session"] },
+    };
+    const suspicionGroupsQuery = selectSuspicionGroupsQuery([
+      ...staleGroups,
+      liveGroup,
+    ]);
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 2,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(suspicionGroupsQuery)
+      .mockReturnValueOnce(selectWhereQuery([]))
+      .mockReturnValueOnce(suspicionGroupsQuery)
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "live-group", responseId: "response-1" },
+          { groupId: "live-group", responseId: "response-2" },
+        ]),
+      )
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          {
+            responseIdA: "response-1",
+            responseIdB: "response-2",
+            strength: "STRONG",
+          },
+        ]),
+      );
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "live",
+          responseCount: 2,
+          strongLinkCount: 1,
+          supportLinkCount: 0,
+        },
+      ],
+      hasNext: false,
+    });
+    expect(suspicionGroupsQuery.orderBy).toHaveBeenCalledWith(
+      { op: "desc", field: "responseSuspicionGroup.responseCount" },
+      { op: "desc", field: "responseSuspicionGroup.strongLinkCount" },
+      { op: "asc", field: "responseSuspicionGroup.id" },
+    );
+    expect(suspicionGroupsQuery.offset).toHaveBeenNthCalledWith(1, 0);
+    expect(suspicionGroupsQuery.offset).toHaveBeenNthCalledWith(2, 100);
+  });
+
+  it("does not double-count pair rows inside dense suspicion group aggregates", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense",
+      technicalConfidence: "HARD",
+      responseCount: 3,
+      strongLinkCount: 3,
+      supportLinkCount: 0,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "hard:session",
+          strongPairCount: 3,
+          supportPairCount: 0,
+          strength: "HARD",
+        },
+        reasonCodes: ["hard:session", "dense:pair-links-omitted"],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+          { groupId: "dense-group", responseId: "response-3" },
+        ]),
+      )
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          {
+            responseIdA: "response-1",
+            responseIdB: "response-2",
+            strength: "STRONG",
+          },
+          {
+            responseIdA: "response-2",
+            responseIdB: "response-3",
+            strength: "SUPPORT",
+          },
+        ]),
+      );
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense",
+          responseCount: 3,
+          strongLinkCount: 3,
+          supportLinkCount: 0,
+        },
+      ],
+    });
+  });
+
+  it("counts support dense suspicion group aggregates as support links", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense-support",
+      technicalConfidence: "SUPPORT",
+      responseCount: 3,
+      strongLinkCount: 0,
+      supportLinkCount: 3,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "support:visitorId",
+          strongPairCount: 0,
+          supportPairCount: 3,
+          strength: "SUPPORT",
+        },
+        reasonCodes: ["support:visitorId", "dense:pair-links-omitted"],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+          { groupId: "dense-group", responseId: "response-3" },
+        ]),
+      )
+      .mockReturnValueOnce(selectWhereQuery([]));
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense-support",
+          responseCount: 3,
+          strongLinkCount: 0,
+          supportLinkCount: 3,
+        },
+      ],
+    });
+  });
+
+  it("recomputes dense suspicion group counts from live members", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense-support-live",
+      technicalConfidence: "SUPPORT",
+      responseCount: 3,
+      strongLinkCount: 0,
+      supportLinkCount: 3,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "support:visitorId",
+          strongPairCount: 0,
+          supportPairCount: 3,
+          strength: "SUPPORT",
+        },
+        reasonCodes: ["support:visitorId", "dense:pair-links-omitted"],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+        ]),
+      )
+      .mockReturnValueOnce(selectWhereQuery([]));
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense-support-live",
+          responseCount: 2,
+          strongLinkCount: 0,
+          supportLinkCount: 1,
+        },
+      ],
+    });
+  });
+
+  it("keeps merged hard and support dense counts in live aggregates", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense-merged",
+      technicalConfidence: "HARD",
+      responseCount: 3,
+      strongLinkCount: 3,
+      supportLinkCount: 3,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "hard:session",
+          strongPairCount: 3,
+          supportPairCount: 3,
+          strength: "HARD",
+        },
+        reasonCodes: [
+          "hard:session",
+          "dense:pair-links-omitted",
+          "support:respondentUuid",
+        ],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+          { groupId: "dense-group", responseId: "response-3" },
+        ]),
+      )
+      .mockReturnValueOnce(selectWhereQuery([]));
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense-merged",
+          responseCount: 3,
+          strongLinkCount: 3,
+          supportLinkCount: 3,
+        },
+      ],
+    });
+  });
+
+  it("queues response link analysis after bulk deletion", async () => {
+    mocks.db.select.mockReturnValueOnce(
+      selectWhereQuery([{ id: "response-1" }]),
+    );
+    const router = await importRouter();
+    const { enqueueResponseLinkAnalysisJob } = await import("../lib/queues");
+
+    const res = await router.request("/form-1/responses/bulk-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ responseIds: ["response-1", "missing"] }),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      success: false,
+      data: {
+        deleted: 1,
+        failed: 1,
+      },
+    });
+    expect(enqueueResponseLinkAnalysisJob).toHaveBeenCalledWith({
+      formId: "form-1",
+      reason: "response-deleted",
     });
   });
 

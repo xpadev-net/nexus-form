@@ -27,7 +27,10 @@ data:
   # Must be reachable from the end user's browser, not a cluster-internal Service DNS name.
   VITE_API_URL: "https://api.example.com"
   VITE_BASE_URL: ""
+  CAPTCHA_PROVIDER: "hcaptcha"
+  VITE_CAPTCHA_PROVIDER: "hcaptcha"
   VITE_HCAPTCHA_SITE_KEY: ""
+  VITE_TURNSTILE_SITE_KEY: ""
   VITE_TELEMETRY_HOST: ""
   VITE_TELEMETRY_V4_HOST: ""
   VITE_TELEMETRY_V6_HOST: ""

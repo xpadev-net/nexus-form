@@ -36,6 +36,12 @@ export {
   createBrandConfig,
   DEFAULT_BRAND_CONFIG,
 } from "./branding";
+export type { CaptchaProvider } from "./captcha";
+export {
+  CAPTCHA_PROVIDERS,
+  captchaProviderSchema,
+  parseCaptchaProvider,
+} from "./captcha";
 export {
   COMPONENT_WEIGHTS,
   DEFAULT_COMPONENT_WEIGHT,
@@ -95,6 +101,43 @@ export {
   PasswordProtectionPublicationSnapshotSchema,
   PasswordProtectionPublicationStateSchema,
 } from "./forms/password-protection-publication";
+export type {
+  CanonicalFingerprintSignal,
+  CanonicalSignalQuality,
+  FamilyContribution,
+  FingerprintSignalInput,
+  PairEvidenceBreakdown,
+  RarityStats,
+  ResponseLinkAnalysisResponse,
+  ResponseLinkFamily,
+  ResponseLinkStrength,
+  ResponsePairLinkEvaluation,
+  ResponseSuspicionGroupEvaluation,
+} from "./forms/response-link-model-v2";
+export {
+  buildRarityStats,
+  buildResponseSuspicionGroups,
+  canonicalizeFingerprintSignal,
+  canonicalizeResponseSignals,
+  evaluateResponsePairLink,
+  RESPONSE_LINK_FAMILIES,
+  RESPONSE_LINK_MODEL_VERSION,
+  RESPONSE_LINK_STRENGTHS,
+} from "./forms/response-link-model-v2";
+export type {
+  ResponseLinkAnalysisRecalculateResponse,
+  ResponseSuspicionGroupDetailResponse,
+  ResponseSuspicionGroupListItem,
+  ResponseSuspicionGroupsResponse,
+} from "./forms/response-suspicion-groups";
+export {
+  FamilyContributionSchema,
+  ResponseLinkAnalysisRecalculateResponseSchema,
+  ResponseLinkStrengthSchema,
+  ResponseSuspicionGroupDetailResponseSchema,
+  ResponseSuspicionGroupListItemSchema,
+  ResponseSuspicionGroupsResponseSchema,
+} from "./forms/response-suspicion-groups";
 export type {
   ComponentMap,
   PairwiseMatchResult,
@@ -376,16 +419,24 @@ export {
 } from "./validation-results";
 export type {
   GenericValidationJobData,
+  ResponseLinkAnalysisJobData,
   SheetsSyncJobData,
   SheetsSyncMode,
 } from "./worker-jobs";
 export {
   buildAutoSheetsSyncJobId,
   buildManualSheetsSyncJobId,
+  buildResponseLinkAnalysisDirtyJobId,
+  buildResponseLinkAnalysisJobId,
   buildValidationOutboxJobId,
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
+  getResponseLinkAnalysisDirtyKey,
+  RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+  RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
+  responseLinkAnalysisJobDataSchema,
   SHEETS_SYNC_AUTO_JOB_PREFIX,
   SHEETS_SYNC_MANUAL_JOB_PREFIX,
   sanitizeValidationResultIdForRetryJob,
