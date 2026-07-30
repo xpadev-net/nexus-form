@@ -14,6 +14,12 @@ export const ResponseLinkStrengthSchema = z.enum([
   "HARD",
 ]);
 
+export const ResponseVisibleLinkStrengthSchema = z.enum([
+  "SUPPORT",
+  "STRONG",
+  "HARD",
+]);
+
 /**
  * Per-family contribution shown in the UI. Scores are capped by the
  * response-link model family rules and reasonCodes describe matched canonical
@@ -106,6 +112,48 @@ export const ResponseSuspicionGroupDetailResponseSchema = z.object({
 });
 export type ResponseSuspicionGroupDetailResponse = z.infer<
   typeof ResponseSuspicionGroupDetailResponseSchema
+>;
+
+const ResponseLinkRunSchema = ResponseSuspicionGroupsResponseSchema.shape.run;
+
+export const ResponseRelationGraphResponseSchema = z.object({
+  run: ResponseLinkRunSchema,
+  nodes: z.array(
+    z.object({
+      responseId: z.string(),
+      submittedAt: z.string(),
+      respondentUuid: z.string(),
+      strongestStrength: ResponseLinkStrengthSchema,
+      strongestEvidence: z.number(),
+    }),
+  ),
+  edges: z.array(
+    z.object({
+      responseIdA: z.string(),
+      responseIdB: z.string(),
+      strength: ResponseLinkStrengthSchema,
+      deviceEvidence: z.number(),
+      v4Support: z.boolean(),
+      v6Strong: z.boolean(),
+      stateSupport: z.boolean(),
+      reasonCodes: z.array(z.string()),
+      familyContributions: z.array(FamilyContributionSchema),
+    }),
+  ),
+  denseClusters: z.array(
+    z.object({
+      id: z.string(),
+      responseIds: z.array(z.string()),
+      strength: ResponseVisibleLinkStrengthSchema,
+      reasonCode: z.string(),
+      pairCount: z.number().int().nonnegative(),
+    }),
+  ),
+  hasNextNodes: z.boolean(),
+  hasNextEdges: z.boolean(),
+});
+export type ResponseRelationGraphResponse = z.infer<
+  typeof ResponseRelationGraphResponseSchema
 >;
 
 /**

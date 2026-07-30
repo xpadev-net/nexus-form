@@ -126,6 +126,7 @@ export {
 } from "./forms/response-link-model-v2";
 export type {
   ResponseLinkAnalysisRecalculateResponse,
+  ResponseRelationGraphResponse,
   ResponseSuspicionGroupDetailResponse,
   ResponseSuspicionGroupListItem,
   ResponseSuspicionGroupsResponse,
@@ -134,9 +135,11 @@ export {
   FamilyContributionSchema,
   ResponseLinkAnalysisRecalculateResponseSchema,
   ResponseLinkStrengthSchema,
+  ResponseRelationGraphResponseSchema,
   ResponseSuspicionGroupDetailResponseSchema,
   ResponseSuspicionGroupListItemSchema,
   ResponseSuspicionGroupsResponseSchema,
+  ResponseVisibleLinkStrengthSchema,
 } from "./forms/response-suspicion-groups";
 export type {
   ComponentMap,
