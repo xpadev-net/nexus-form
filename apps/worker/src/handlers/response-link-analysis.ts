@@ -72,7 +72,7 @@ type CandidateBucket = {
 type DenseGroupBucket = {
   responseIds: string[];
   reasonCode: string;
-  strength: Extract<ResponseLinkStrength, "HARD" | "STRONG">;
+  strength: Exclude<ResponseLinkStrength, "NONE">;
 };
 
 type ResponseRow = {
@@ -492,12 +492,14 @@ function buildDenseSuspicionGroup(
 ): ResponseSuspicionGroupEvaluation {
   const responseIds = [...new Set(bucket.responseIds)].sort();
   const pairCount = denseGroupPairCount(responseIds);
+  const strongPairCount = bucket.strength === "SUPPORT" ? 0 : pairCount;
+  const supportPairCount = bucket.strength === "SUPPORT" ? pairCount : 0;
   return {
     groupKey: denseGroupKey(responseIds),
     technicalConfidence: bucket.strength,
     responseIds,
-    strongLinkCount: pairCount,
-    supportLinkCount: 0,
+    strongLinkCount: strongPairCount,
+    supportLinkCount: supportPairCount,
     summary: {
       reasonCodes: [bucket.reasonCode, "dense:pair-links-omitted"],
       topFamilies: [],
@@ -505,6 +507,8 @@ function buildDenseSuspicionGroup(
         omittedPairLinks: true,
         pairCount,
         reasonCode: bucket.reasonCode,
+        strongPairCount,
+        supportPairCount,
         strength: bucket.strength,
       },
     },
@@ -545,7 +549,29 @@ function mergeDenseSuspicionGroups(
       summary: {
         reasonCodes,
         topFamilies: existing.summary.topFamilies,
-        denseBucket: existing.summary.denseBucket,
+        denseBucket:
+          existing.summary.denseBucket && group.summary.denseBucket
+            ? {
+                ...existing.summary.denseBucket,
+                pairCount: Math.max(
+                  existing.summary.denseBucket.pairCount,
+                  group.summary.denseBucket.pairCount,
+                ),
+                strongPairCount: Math.max(
+                  existing.summary.denseBucket.strongPairCount,
+                  group.summary.denseBucket.strongPairCount,
+                ),
+                supportPairCount: Math.max(
+                  existing.summary.denseBucket.supportPairCount,
+                  group.summary.denseBucket.supportPairCount,
+                ),
+                strength:
+                  strengthRank(group.summary.denseBucket.strength) >
+                  strengthRank(existing.summary.denseBucket.strength)
+                    ? group.summary.denseBucket.strength
+                    : existing.summary.denseBucket.strength,
+              }
+            : (existing.summary.denseBucket ?? group.summary.denseBucket),
       },
     });
   }
@@ -642,13 +668,32 @@ function buildCandidatePairs(
     }
   }
 
-  for (const buckets of [respondentBuckets, visitorIdBuckets]) {
+  for (const { buckets, denseGroup } of [
+    {
+      buckets: respondentBuckets,
+      denseGroup: {
+        reasonCode: "support:respondentUuid",
+        strength: "SUPPORT" as const,
+      },
+    },
+    {
+      buckets: visitorIdBuckets,
+      denseGroup: {
+        reasonCode: "support:visitorId",
+        strength: "SUPPORT" as const,
+      },
+    },
+  ]) {
     for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
+        denseGroup,
         enforceCandidateLimit: false,
         highConfidenceBucketPairLimit: HIGH_CONFIDENCE_BUCKET_PAIR_LIMIT,
         maxCandidatePairs,
       });
+      if (result.denseGroup) {
+        denseGroups.push(buildDenseSuspicionGroup(result.denseGroup));
+      }
       skippedBucketCount += result.skippedBucketCount;
       truncated = result.truncated || truncated;
     }
@@ -833,7 +878,9 @@ async function persistResults(params: {
             strengthRank(link.strength) > strengthRank(current)
               ? link.strength
               : current,
-          group.strongLinkCount > 0 ? group.technicalConfidence : "NONE",
+          group.strongLinkCount + group.supportLinkCount > 0
+            ? group.technicalConfidence
+            : "NONE",
         );
         const strongestEvidence = memberLinks.reduce(
           (current, link) => Math.max(current, link.deviceEvidence),

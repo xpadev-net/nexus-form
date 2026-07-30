@@ -97,7 +97,9 @@ export type ResponseSuspicionGroupEvaluation = {
       omittedPairLinks: boolean;
       pairCount: number;
       reasonCode: string;
-      strength: Extract<ResponseLinkStrength, "HARD" | "STRONG">;
+      strongPairCount: number;
+      supportPairCount: number;
+      strength: Exclude<ResponseLinkStrength, "NONE">;
     };
   };
 };

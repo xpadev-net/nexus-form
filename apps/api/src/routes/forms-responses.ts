@@ -480,7 +480,9 @@ const linkSummarySchema = z
         omittedPairLinks: z.boolean(),
         pairCount: z.number().int().nonnegative(),
         reasonCode: z.string(),
-        strength: z.enum(["HARD", "STRONG"]),
+        strongPairCount: z.number().int().nonnegative().optional(),
+        supportPairCount: z.number().int().nonnegative().optional(),
+        strength: z.enum(["HARD", "STRONG", "SUPPORT"]),
       })
       .optional(),
     reasonCodes: z.array(z.string()).optional(),
@@ -523,7 +525,9 @@ function parseLinkSummary(value: unknown): {
     omittedPairLinks: boolean;
     pairCount: number;
     reasonCode: string;
-    strength: "HARD" | "STRONG";
+    strongPairCount?: number;
+    supportPairCount?: number;
+    strength: "HARD" | "STRONG" | "SUPPORT";
   } | null;
   reasonCodes: string[];
   topFamilies: Array<{ family: string; score: number; reasonCodes: string[] }>;
@@ -659,10 +663,11 @@ async function getLiveResponseSuspicionGroupAggregates(
 ): Promise<Map<string, LiveResponseSuspicionGroupAggregate>> {
   const groupIds = groups.map((group) => group.id);
   if (groupIds.length === 0) return new Map();
-  const denseGroups = new Set(
-    groups
-      .filter((group) => parseLinkSummary(group.summaryJson).denseBucket)
-      .map((group) => group.id),
+  const denseGroups = new Map(
+    groups.flatMap((group) => {
+      const denseBucket = parseLinkSummary(group.summaryJson).denseBucket;
+      return denseBucket ? [[group.id, denseBucket]] : [];
+    }),
   );
   const memberRows = await db
     .select({
@@ -691,13 +696,22 @@ async function getLiveResponseSuspicionGroupAggregates(
 
   const aggregates = new Map<string, LiveResponseSuspicionGroupAggregate>();
   for (const [groupId, members] of groupMembers) {
-    const densePairCount = denseGroups.has(groupId)
+    const denseBucket = denseGroups.get(groupId);
+    const densePairCount = denseBucket
       ? (members.size * (members.size - 1)) / 2
       : 0;
+    const hasStrongDenseEvidence =
+      (denseBucket?.strongPairCount ??
+        (denseBucket?.strength === "HARD" || denseBucket?.strength === "STRONG"
+          ? densePairCount
+          : 0)) > 0;
+    const hasSupportDenseEvidence =
+      (denseBucket?.supportPairCount ??
+        (denseBucket?.strength === "SUPPORT" ? densePairCount : 0)) > 0;
     aggregates.set(groupId, {
       responseCount: members.size,
-      strongLinkCount: densePairCount,
-      supportLinkCount: 0,
+      strongLinkCount: hasStrongDenseEvidence ? densePairCount : 0,
+      supportLinkCount: hasSupportDenseEvidence ? densePairCount : 0,
     });
   }
   if (responseIds.length === 0) return aggregates;

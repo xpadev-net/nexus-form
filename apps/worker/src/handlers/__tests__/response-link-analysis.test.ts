@@ -453,6 +453,8 @@ describe("analyzeResponseLinks", () => {
             omittedPairLinks: true,
             pairCount: 501_501,
             reasonCode: "hard:session",
+            strongPairCount: 501_501,
+            supportPairCount: 0,
             strength: "HARD",
           }),
           reasonCodes: ["hard:session", "dense:pair-links-omitted"],
@@ -511,6 +513,129 @@ describe("analyzeResponseLinks", () => {
             "hard:session",
             "dense:pair-links-omitted",
             "strong:telemetry:v6",
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("persists extreme visitorId buckets as support dense groups", async () => {
+    mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
+      id: `response-${index.toString().padStart(4, "0")}`,
+      sessionId: null,
+      respondentUuid: `respondent-${index}`,
+      userAgent: null,
+    }));
+    mocks.fingerprintRows = mocks.responseRows.map((response) => ({
+      responseId: response.id,
+      fingerprintType: "fingerprintjs",
+      componentName: "visitorId",
+      componentValue: null,
+      componentValueHash: "same-visitor",
+    }));
+
+    const result = await analyzeResponseLinks("form-1");
+
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(1);
+    const groupInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responseSuspicionGroup",
+    );
+    expect(groupInsert?.values).toEqual(
+      expect.objectContaining({
+        responseCount: 1002,
+        strongLinkCount: 0,
+        supportLinkCount: 501_501,
+        technicalConfidence: "SUPPORT",
+        summaryJson: expect.objectContaining({
+          denseBucket: expect.objectContaining({
+            omittedPairLinks: true,
+            pairCount: 501_501,
+            reasonCode: "support:visitorId",
+            strongPairCount: 0,
+            supportPairCount: 501_501,
+            strength: "SUPPORT",
+          }),
+          reasonCodes: ["support:visitorId", "dense:pair-links-omitted"],
+        }),
+      }),
+    );
+    const memberInsertValues = mocks.txInsertedRows
+      .filter((entry) => entry.table === "responseSuspicionGroupMember")
+      .flatMap((entry) => (Array.isArray(entry.values) ? entry.values : []));
+    expect(memberInsertValues[0]).toEqual(
+      expect.objectContaining({ strongestStrength: "SUPPORT" }),
+    );
+  });
+
+  it("persists extreme respondent UUID buckets as support dense groups", async () => {
+    mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
+      id: `response-${index.toString().padStart(4, "0")}`,
+      sessionId: null,
+      respondentUuid: "same-respondent",
+      userAgent: null,
+    }));
+
+    const result = await analyzeResponseLinks("form-1");
+
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(1);
+    const groupInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responseSuspicionGroup",
+    );
+    expect(groupInsert?.values).toEqual(
+      expect.objectContaining({
+        responseCount: 1002,
+        strongLinkCount: 0,
+        supportLinkCount: 501_501,
+        technicalConfidence: "SUPPORT",
+        summaryJson: expect.objectContaining({
+          denseBucket: expect.objectContaining({
+            omittedPairLinks: true,
+            pairCount: 501_501,
+            reasonCode: "support:respondentUuid",
+            strongPairCount: 0,
+            supportPairCount: 501_501,
+            strength: "SUPPORT",
+          }),
+          reasonCodes: ["support:respondentUuid", "dense:pair-links-omitted"],
+        }),
+      }),
+    );
+  });
+
+  it("preserves support counts when dense support evidence overlaps a hard dense group", async () => {
+    mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
+      id: `response-${index.toString().padStart(4, "0")}`,
+      sessionId: "same-session",
+      respondentUuid: "same-respondent",
+      userAgent: null,
+    }));
+
+    const result = await analyzeResponseLinks("form-1");
+
+    expect(result.linkCount).toBe(0);
+    expect(result.groupCount).toBe(1);
+    const groupInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responseSuspicionGroup",
+    );
+    expect(groupInsert?.values).toEqual(
+      expect.objectContaining({
+        responseCount: 1002,
+        strongLinkCount: 501_501,
+        supportLinkCount: 501_501,
+        technicalConfidence: "HARD",
+        summaryJson: expect.objectContaining({
+          denseBucket: expect.objectContaining({
+            pairCount: 501_501,
+            strongPairCount: 501_501,
+            supportPairCount: 501_501,
+            strength: "HARD",
+          }),
+          reasonCodes: [
+            "hard:session",
+            "dense:pair-links-omitted",
+            "support:respondentUuid",
           ],
         }),
       }),

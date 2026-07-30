@@ -474,6 +474,8 @@ describe("response deletion API", () => {
           omittedPairLinks: true,
           pairCount: 3,
           reasonCode: "hard:session",
+          strongPairCount: 3,
+          supportPairCount: 0,
           strength: "HARD",
         },
         reasonCodes: ["hard:session", "dense:pair-links-omitted"],
@@ -530,6 +532,198 @@ describe("response deletion API", () => {
           responseCount: 3,
           strongLinkCount: 3,
           supportLinkCount: 0,
+        },
+      ],
+    });
+  });
+
+  it("counts support dense suspicion group aggregates as support links", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense-support",
+      technicalConfidence: "SUPPORT",
+      responseCount: 3,
+      strongLinkCount: 0,
+      supportLinkCount: 3,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "support:visitorId",
+          strongPairCount: 0,
+          supportPairCount: 3,
+          strength: "SUPPORT",
+        },
+        reasonCodes: ["support:visitorId", "dense:pair-links-omitted"],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+          { groupId: "dense-group", responseId: "response-3" },
+        ]),
+      )
+      .mockReturnValueOnce(selectWhereQuery([]));
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense-support",
+          responseCount: 3,
+          strongLinkCount: 0,
+          supportLinkCount: 3,
+        },
+      ],
+    });
+  });
+
+  it("recomputes dense suspicion group counts from live members", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense-support-live",
+      technicalConfidence: "SUPPORT",
+      responseCount: 3,
+      strongLinkCount: 0,
+      supportLinkCount: 3,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "support:visitorId",
+          strongPairCount: 0,
+          supportPairCount: 3,
+          strength: "SUPPORT",
+        },
+        reasonCodes: ["support:visitorId", "dense:pair-links-omitted"],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+        ]),
+      )
+      .mockReturnValueOnce(selectWhereQuery([]));
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense-support-live",
+          responseCount: 2,
+          strongLinkCount: 0,
+          supportLinkCount: 1,
+        },
+      ],
+    });
+  });
+
+  it("keeps merged hard and support dense counts in live aggregates", async () => {
+    const denseGroup = {
+      id: "dense-group",
+      groupKey: "dense-merged",
+      technicalConfidence: "HARD",
+      responseCount: 3,
+      strongLinkCount: 3,
+      supportLinkCount: 3,
+      summaryJson: {
+        denseBucket: {
+          omittedPairLinks: true,
+          pairCount: 3,
+          reasonCode: "hard:session",
+          strongPairCount: 3,
+          supportPairCount: 3,
+          strength: "HARD",
+        },
+        reasonCodes: [
+          "hard:session",
+          "dense:pair-links-omitted",
+          "support:respondentUuid",
+        ],
+      },
+    };
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            id: "run-1",
+            formId: "form-1",
+            modelVersion: "response-link-v2-rarity-shadow",
+            statsVersion: "stats-1",
+            populationSize: 3,
+            status: "COMPLETED",
+            startedAt: new Date("2026-07-29T00:00:00.000Z"),
+            completedAt: new Date("2026-07-29T00:00:01.000Z"),
+            errorMessage: null,
+            metadataJson: {},
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectSuspicionGroupsQuery([denseGroup]))
+      .mockReturnValueOnce(
+        selectWhereQuery([
+          { groupId: "dense-group", responseId: "response-1" },
+          { groupId: "dense-group", responseId: "response-2" },
+          { groupId: "dense-group", responseId: "response-3" },
+        ]),
+      )
+      .mockReturnValueOnce(selectWhereQuery([]));
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/suspicion-groups");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      groups: [
+        {
+          groupKey: "dense-merged",
+          responseCount: 3,
+          strongLinkCount: 3,
+          supportLinkCount: 3,
         },
       ],
     });
