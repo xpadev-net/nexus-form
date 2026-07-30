@@ -541,7 +541,7 @@ describe("queues", () => {
     );
   });
 
-  it("does not leave a dirty marker when dirty rescue enqueue fails", async () => {
+  it("leaves a dirty marker when dirty rescue enqueue fails", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
     queue?.add.mockRejectedValueOnce(new Error("queue unavailable"));
@@ -566,7 +566,12 @@ describe("queues", () => {
       }),
     ).rejects.toThrow("queue unavailable");
 
-    expect(mocks.redisSet).not.toHaveBeenCalled();
+    expect(mocks.redisSet).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+      "1",
+      "EX",
+      86_400,
+    );
   });
 
   it("quits the response-link analysis dirty client on close", async () => {

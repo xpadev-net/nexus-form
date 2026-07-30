@@ -272,6 +272,7 @@ function addBucketPairs(
   responseIds: Iterable<string>,
   options: {
     bucketLimitExceededIsTruncated?: boolean;
+    connectOversizedBucket?: boolean;
     bucketLimit?: number;
     enforceCandidateLimit?: boolean;
     maxCandidatePairs: number;
@@ -280,6 +281,15 @@ function addBucketPairs(
   const ids = [...new Set(responseIds)].sort();
   if (ids.length < 2) return { skippedBucketCount: 0, truncated: false };
   if (options.bucketLimit !== undefined && ids.length > options.bucketLimit) {
+    if (options.connectOversizedBucket) {
+      for (let index = 1; index < ids.length; index += 1) {
+        const left = ids[index - 1];
+        const right = ids[index];
+        if (!left || !right) continue;
+        candidatePairs.add(pairKey(left, right));
+      }
+      return { skippedBucketCount: 0, truncated: true };
+    }
     return {
       skippedBucketCount: 1,
       truncated: options.bucketLimitExceededIsTruncated ?? false,
@@ -409,6 +419,7 @@ function buildCandidatePairs(
       const result = addBucketPairs(candidatePairs, responseIds, {
         bucketLimit: UNCAPPED_CANDIDATE_BUCKET_LIMIT,
         bucketLimitExceededIsTruncated: true,
+        connectOversizedBucket: true,
         enforceCandidateLimit: false,
         maxCandidatePairs,
       });
