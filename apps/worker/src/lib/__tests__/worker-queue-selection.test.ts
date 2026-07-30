@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   FORM_SUBMIT_NOTIFICATION_QUEUE,
   GOOGLE_SHEETS_SYNC_QUEUE,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
   selectWorkerQueues,
   validateWorkerQueuesEnv,
 } from "../worker-queue-selection";
@@ -18,6 +19,7 @@ describe("selectWorkerQueues", () => {
       ],
       includeSheetsSync: true,
       includeFormSubmitNotifications: true,
+      includeResponseLinkAnalysis: true,
       unknownQueues: [],
     });
   });
@@ -26,12 +28,13 @@ describe("selectWorkerQueues", () => {
     expect(
       selectWorkerQueues(
         providers,
-        `github-validation, ${GOOGLE_SHEETS_SYNC_QUEUE}, ${FORM_SUBMIT_NOTIFICATION_QUEUE}`,
+        `github-validation, ${GOOGLE_SHEETS_SYNC_QUEUE}, ${FORM_SUBMIT_NOTIFICATION_QUEUE}, ${RESPONSE_LINK_ANALYSIS_QUEUE}`,
       ),
     ).toEqual({
       validationQueues: ["github-validation"],
       includeSheetsSync: true,
       includeFormSubmitNotifications: true,
+      includeResponseLinkAnalysis: true,
       unknownQueues: [],
     });
   });
@@ -43,6 +46,7 @@ describe("selectWorkerQueues", () => {
       validationQueues: [],
       includeSheetsSync: false,
       includeFormSubmitNotifications: true,
+      includeResponseLinkAnalysis: false,
       unknownQueues: [],
     });
   });
@@ -57,6 +61,7 @@ describe("selectWorkerQueues", () => {
       validationQueues: ["discord-validation"],
       includeSheetsSync: false,
       includeFormSubmitNotifications: true,
+      includeResponseLinkAnalysis: false,
       unknownQueues: ["missing"],
     });
   });
@@ -82,6 +87,7 @@ describe("selectWorkerQueues", () => {
       validationQueues: [],
       includeSheetsSync: false,
       includeFormSubmitNotifications: false,
+      includeResponseLinkAnalysis: false,
       unknownQueues: [],
     });
   });

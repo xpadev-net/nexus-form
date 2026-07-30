@@ -2,6 +2,19 @@ import { validationOutputValuesSchema } from "@nexus-form/shared";
 import { z } from "zod";
 import { FormResponseRowSchema } from "./form-row";
 
+export type {
+  ResponseLinkAnalysisRecalculateResponse,
+  ResponseSuspicionGroupDetailResponse,
+  ResponseSuspicionGroupListItem,
+  ResponseSuspicionGroupsResponse,
+} from "@nexus-form/shared";
+export {
+  ResponseLinkAnalysisRecalculateResponseSchema,
+  ResponseSuspicionGroupDetailResponseSchema,
+  ResponseSuspicionGroupListItemSchema,
+  ResponseSuspicionGroupsResponseSchema,
+} from "@nexus-form/shared";
+
 /** GET /:id/responses のリストアイテム（responseDataJson を含まない）。 */
 export const ResponseListItemSchema = FormResponseRowSchema.omit({
   responseDataJson: true,

@@ -60,7 +60,11 @@ import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-reposi
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
 import { logError, logWarn } from "../lib/logger";
-import { getValidationQueue, isValidServiceName } from "../lib/queues";
+import {
+  enqueueResponseLinkAnalysisJob,
+  getValidationQueue,
+  isValidServiceName,
+} from "../lib/queues";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
 import { stringifyResponseDataJson } from "../lib/response-data-json";
@@ -1098,6 +1102,18 @@ export const formsPublicRouter = createHonoApp()
       if (insertResult.hasSubmitOutbox) {
         recoverSubmitOutboxForResponse(responseId);
       }
+
+      enqueueResponseLinkAnalysisJob({
+        formId: target.id,
+        reason: "response-submitted",
+      }).catch((error) => {
+        logError("Failed to queue response link analysis", "api", {
+          error,
+          responseId,
+          formId: target.id,
+        });
+        captureError(error);
+      });
 
       // 15. Return the created response
       const submitResponse = PublicSubmitResponseSchema.parse({

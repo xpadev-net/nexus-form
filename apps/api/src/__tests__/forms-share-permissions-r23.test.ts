@@ -315,6 +315,7 @@ vi.mock("../lib/logger", () => ({
   logWarn: vi.fn(),
 }));
 vi.mock("../lib/queues", () => ({
+  enqueueResponseLinkAnalysisJob: vi.fn(() => Promise.resolve()),
   getSheetsSyncQueue: vi.fn(),
   getValidationQueue: vi.fn(),
   isValidServiceName: vi.fn(),

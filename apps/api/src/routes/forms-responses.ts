@@ -9,6 +9,10 @@ import {
   formStructure,
   formValidationRule,
   formValidationRuleBlock,
+  responseLinkAnalysisRun,
+  responsePairLink,
+  responseSuspicionGroup,
+  responseSuspicionGroupMember,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
@@ -23,12 +27,13 @@ import {
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   parseValidationOutputExportSettings,
+  RESPONSE_LINK_MODEL_VERSION,
   type ResponseExportValidationOutputValue,
   responsePayloadItemSchema,
   type ValidationOutputExportSettings,
   type ValidationStatusValue,
 } from "@nexus-form/shared";
-import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -54,7 +59,11 @@ import { getExternalValidationResults } from "../lib/forms/validation-results";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 import { logError, logWarn } from "../lib/logger";
-import { getValidationQueue, isValidServiceName } from "../lib/queues";
+import {
+  enqueueResponseLinkAnalysisJob,
+  getValidationQueue,
+  isValidServiceName,
+} from "../lib/queues";
 import { createRateLimit } from "../lib/rate-limit";
 import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
 import { stringifyResponseDataJson } from "../lib/response-data-json";
@@ -64,7 +73,10 @@ import {
   InvalidResponseDataErrorResponseSchema,
   ResponseDetailResponseSchema,
   ResponseIdsResponseSchema,
+  ResponseLinkAnalysisRecalculateResponseSchema,
   ResponseMutationResponseSchema,
+  ResponseSuspicionGroupDetailResponseSchema,
+  ResponseSuspicionGroupsResponseSchema,
   ResponsesListResponseSchema,
   ValidationRetryEnqueueErrorResponseSchema,
   ValidationRetryResponseSchema,
@@ -94,6 +106,9 @@ const LIKE_ESCAPE_CHAR = "!";
 const RESPONSE_SEARCH_MIN_BATCH_SIZE = 200;
 const RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT = 5000;
 const RESPONSE_EXPORT_ROW_LIMIT = 5000;
+const RESPONSE_SUSPICION_GROUP_LIST_LIMIT = 100;
+const RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT = 200;
+const RESPONSE_SUSPICION_GROUP_LINK_LIMIT = 1000;
 const VALIDATION_REVALIDATION_ENQUEUE_CONCURRENCY = 5;
 const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = RESPONSE_EXPORT_ROW_LIMIT;
 
@@ -456,6 +471,284 @@ function addUniquenessScore<T extends { id: string }>(
     ...row,
     uniquenessScore: scores === null ? null : (scores.get(row.id) ?? 1),
   };
+}
+
+const linkSummarySchema = z
+  .object({
+    denseBucket: z
+      .object({
+        omittedPairLinks: z.boolean(),
+        pairCount: z.number().int().nonnegative(),
+        reasonCode: z.string(),
+        strongPairCount: z.number().int().nonnegative().optional(),
+        supportPairCount: z.number().int().nonnegative().optional(),
+        strength: z.enum(["HARD", "STRONG", "SUPPORT"]),
+      })
+      .optional(),
+    reasonCodes: z.array(z.string()).optional(),
+    topFamilies: z
+      .array(
+        z.object({
+          family: z.string(),
+          score: z.number(),
+          reasonCodes: z.array(z.string()),
+        }),
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const pairBreakdownSchema = z
+  .object({
+    reasonCodes: z.array(z.string()).optional(),
+    familyContributions: z
+      .array(
+        z.object({
+          family: z.string(),
+          score: z.number(),
+          reasonCodes: z.array(z.string()),
+        }),
+      )
+      .optional(),
+  })
+  .passthrough();
+
+const responseLinkRunMetadataSchema = z
+  .object({
+    candidatePairLimitExceeded: z.boolean().optional(),
+    skippedCandidateBucketCount: z.number().int().nonnegative().optional(),
+  })
+  .passthrough();
+
+function parseLinkSummary(value: unknown): {
+  denseBucket: {
+    omittedPairLinks: boolean;
+    pairCount: number;
+    reasonCode: string;
+    strongPairCount?: number;
+    supportPairCount?: number;
+    strength: "HARD" | "STRONG" | "SUPPORT";
+  } | null;
+  reasonCodes: string[];
+  topFamilies: Array<{ family: string; score: number; reasonCodes: string[] }>;
+} {
+  const parsed = linkSummarySchema.safeParse(value);
+  if (!parsed.success) {
+    logWarn("Invalid response link summaryJson", "forms-responses", {
+      issues: parsed.error.issues,
+    });
+  }
+  return {
+    denseBucket: parsed.success ? (parsed.data.denseBucket ?? null) : null,
+    reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
+    topFamilies: parsed.success ? (parsed.data.topFamilies ?? []) : [],
+  };
+}
+
+function parseResponseLinkRunMetadata(value: unknown): {
+  candidatePairLimitExceeded: boolean;
+  skippedCandidateBucketCount: number;
+} {
+  const parsed = responseLinkRunMetadataSchema.safeParse(value);
+  if (!parsed.success) {
+    logWarn("Invalid response link analysis metadataJson", "forms-responses", {
+      issues: parsed.error.issues,
+    });
+  }
+  return {
+    candidatePairLimitExceeded: parsed.success
+      ? (parsed.data.candidatePairLimitExceeded ?? false)
+      : false,
+    skippedCandidateBucketCount: parsed.success
+      ? (parsed.data.skippedCandidateBucketCount ?? 0)
+      : 0,
+  };
+}
+
+function parsePairBreakdown(value: unknown): {
+  reasonCodes: string[];
+  familyContributions: Array<{
+    family: string;
+    score: number;
+    reasonCodes: string[];
+  }>;
+} {
+  const parsed = pairBreakdownSchema.safeParse(value);
+  if (!parsed.success) {
+    logWarn("Invalid response pair breakdownJson", "forms-responses", {
+      issues: parsed.error.issues,
+    });
+  }
+  return {
+    reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
+    familyContributions: parsed.success
+      ? (parsed.data.familyContributions ?? [])
+      : [],
+  };
+}
+
+type LatestCompletedResponseLinkRun = {
+  id: string;
+  modelVersion: string;
+  statsVersion: string | null;
+  populationSize: number;
+  completedAt: Date | null;
+  candidatePairLimitExceeded: boolean;
+  skippedCandidateBucketCount: number;
+};
+
+type LiveResponseSuspicionGroupAggregate = {
+  responseCount: number;
+  strongLinkCount: number;
+  supportLinkCount: number;
+};
+
+type ResponseSuspicionGroupListRow = {
+  id: string;
+  groupKey: string;
+  technicalConfidence: "HARD" | "NONE" | "STRONG" | "SUPPORT";
+  responseCount: number;
+  strongLinkCount: number;
+  supportLinkCount: number;
+  summaryJson: unknown;
+};
+
+type LiveResponseSuspicionGroupListRow = ResponseSuspicionGroupListRow & {
+  aggregate: LiveResponseSuspicionGroupAggregate;
+};
+
+async function getLatestCompletedResponseLinkRun(
+  formId: string,
+): Promise<LatestCompletedResponseLinkRun | null> {
+  const [run] = await db
+    .select({
+      id: responseLinkAnalysisRun.id,
+      modelVersion: responseLinkAnalysisRun.modelVersion,
+      statsVersion: responseLinkAnalysisRun.statsVersion,
+      populationSize: responseLinkAnalysisRun.populationSize,
+      completedAt: responseLinkAnalysisRun.completedAt,
+      metadataJson: responseLinkAnalysisRun.metadataJson,
+    })
+    .from(responseLinkAnalysisRun)
+    .where(
+      and(
+        eq(responseLinkAnalysisRun.formId, formId),
+        eq(responseLinkAnalysisRun.modelVersion, RESPONSE_LINK_MODEL_VERSION),
+        eq(responseLinkAnalysisRun.status, "COMPLETED"),
+      ),
+    )
+    .orderBy(desc(responseLinkAnalysisRun.completedAt))
+    .limit(1);
+
+  if (!run) return null;
+  const { metadataJson, ...publicRun } = run;
+  return {
+    ...publicRun,
+    ...parseResponseLinkRunMetadata(metadataJson),
+  };
+}
+
+async function enqueueDeletionResponseLinkAnalysis(
+  formId: string,
+): Promise<void> {
+  await enqueueResponseLinkAnalysisJob({
+    formId,
+    reason: "response-deleted",
+  });
+}
+
+async function getLiveResponseSuspicionGroupAggregates(
+  runId: string,
+  groups: Array<{ id: string; summaryJson: unknown }>,
+): Promise<Map<string, LiveResponseSuspicionGroupAggregate>> {
+  const groupIds = groups.map((group) => group.id);
+  if (groupIds.length === 0) return new Map();
+  const denseGroups = new Map(
+    groups.flatMap((group) => {
+      const denseBucket = parseLinkSummary(group.summaryJson).denseBucket;
+      return denseBucket ? [[group.id, denseBucket]] : [];
+    }),
+  );
+  const memberRows = await db
+    .select({
+      groupId: responseSuspicionGroupMember.groupId,
+      responseId: responseSuspicionGroupMember.responseId,
+    })
+    .from(responseSuspicionGroupMember)
+    .innerJoin(
+      formResponse,
+      eq(responseSuspicionGroupMember.responseId, formResponse.id),
+    )
+    .where(inArray(responseSuspicionGroupMember.groupId, groupIds));
+
+  const responseIds = [...new Set(memberRows.map((row) => row.responseId))];
+  const groupMembers = new Map<string, Set<string>>();
+  const groupsByResponseId = new Map<string, Set<string>>();
+  for (const row of memberRows) {
+    const members = groupMembers.get(row.groupId) ?? new Set<string>();
+    members.add(row.responseId);
+    groupMembers.set(row.groupId, members);
+
+    const groups = groupsByResponseId.get(row.responseId) ?? new Set<string>();
+    groups.add(row.groupId);
+    groupsByResponseId.set(row.responseId, groups);
+  }
+
+  const aggregates = new Map<string, LiveResponseSuspicionGroupAggregate>();
+  for (const [groupId, members] of groupMembers) {
+    const denseBucket = denseGroups.get(groupId);
+    const densePairCount = denseBucket
+      ? (members.size * (members.size - 1)) / 2
+      : 0;
+    const hasStrongDenseEvidence =
+      (denseBucket?.strongPairCount ??
+        (denseBucket?.strength === "HARD" || denseBucket?.strength === "STRONG"
+          ? densePairCount
+          : 0)) > 0;
+    const hasSupportDenseEvidence =
+      (denseBucket?.supportPairCount ??
+        (denseBucket?.strength === "SUPPORT" ? densePairCount : 0)) > 0;
+    aggregates.set(groupId, {
+      responseCount: members.size,
+      strongLinkCount: hasStrongDenseEvidence ? densePairCount : 0,
+      supportLinkCount: hasSupportDenseEvidence ? densePairCount : 0,
+    });
+  }
+  if (responseIds.length === 0) return aggregates;
+
+  const linkRows = await db
+    .select({
+      responseIdA: responsePairLink.responseIdA,
+      responseIdB: responsePairLink.responseIdB,
+      strength: responsePairLink.strength,
+    })
+    .from(responsePairLink)
+    .where(
+      and(
+        eq(responsePairLink.runId, runId),
+        inArray(responsePairLink.responseIdA, responseIds),
+        inArray(responsePairLink.responseIdB, responseIds),
+      ),
+    );
+
+  for (const link of linkRows) {
+    const leftGroups = groupsByResponseId.get(link.responseIdA);
+    const rightGroups = groupsByResponseId.get(link.responseIdB);
+    if (!leftGroups || !rightGroups) continue;
+    for (const groupId of leftGroups) {
+      if (!rightGroups.has(groupId)) continue;
+      if (denseGroups.has(groupId)) continue;
+      const aggregate = aggregates.get(groupId);
+      if (!aggregate) continue;
+      if (link.strength === "STRONG" || link.strength === "HARD") {
+        aggregate.strongLinkCount += 1;
+      } else if (link.strength === "SUPPORT") {
+        aggregate.supportLinkCount += 1;
+      }
+    }
+  }
+
+  return aggregates;
 }
 
 function decorateResponseRow<T extends { id: string }>(
@@ -2035,6 +2328,17 @@ export const formsResponsesRouter = createHonoApp()
         .where(eq(formResponse.id, id))
         .limit(1);
 
+      enqueueResponseLinkAnalysisJob({
+        formId,
+        reason: "response-submitted",
+      }).catch((error) => {
+        logError("Failed to queue response link analysis", "forms-responses", {
+          error,
+          responseId: id,
+          formId,
+        });
+      });
+
       return c.json(
         ResponseMutationResponseSchema.parse({ response: created ?? null }),
         201,
@@ -2217,6 +2521,247 @@ export const formsResponsesRouter = createHonoApp()
       });
     },
   )
+  .get("/:id/responses/suspicion-groups", async (c) => {
+    const formId = c.req.param("id");
+    const run = await getLatestCompletedResponseLinkRun(formId);
+    if (!run) {
+      return c.json(
+        ResponseSuspicionGroupsResponseSchema.parse({
+          run: null,
+          groups: [],
+          hasNext: false,
+        }),
+      );
+    }
+
+    const liveRows: LiveResponseSuspicionGroupListRow[] = [];
+    const batchSize = RESPONSE_SUSPICION_GROUP_LIST_LIMIT;
+    let offset = 0;
+    let hasMorePersistedGroups = true;
+    while (
+      liveRows.length <= RESPONSE_SUSPICION_GROUP_LIST_LIMIT &&
+      hasMorePersistedGroups
+    ) {
+      const rows = await db
+        .select({
+          id: responseSuspicionGroup.id,
+          groupKey: responseSuspicionGroup.groupKey,
+          technicalConfidence: responseSuspicionGroup.technicalConfidence,
+          responseCount: responseSuspicionGroup.responseCount,
+          strongLinkCount: responseSuspicionGroup.strongLinkCount,
+          supportLinkCount: responseSuspicionGroup.supportLinkCount,
+          summaryJson: responseSuspicionGroup.summaryJson,
+        })
+        .from(responseSuspicionGroup)
+        .where(eq(responseSuspicionGroup.runId, run.id))
+        .orderBy(
+          desc(responseSuspicionGroup.responseCount),
+          desc(responseSuspicionGroup.strongLinkCount),
+          asc(responseSuspicionGroup.id),
+        )
+        .offset(offset)
+        .limit(batchSize + 1);
+      const batchRows = rows.slice(0, batchSize);
+      hasMorePersistedGroups = rows.length > batchSize;
+      offset += batchRows.length;
+      const aggregates = await getLiveResponseSuspicionGroupAggregates(
+        run.id,
+        batchRows,
+      );
+      for (const row of batchRows) {
+        const aggregate = aggregates.get(row.id);
+        if (
+          !aggregate ||
+          aggregate.responseCount < 2 ||
+          aggregate.strongLinkCount + aggregate.supportLinkCount === 0
+        ) {
+          continue;
+        }
+        liveRows.push({ ...row, aggregate });
+        if (liveRows.length > RESPONSE_SUSPICION_GROUP_LIST_LIMIT) break;
+      }
+    }
+    const visibleRows = liveRows.slice(0, RESPONSE_SUSPICION_GROUP_LIST_LIMIT);
+
+    return c.json(
+      ResponseSuspicionGroupsResponseSchema.parse({
+        run: {
+          ...run,
+          completedAt: run.completedAt?.toISOString() ?? null,
+        },
+        groups: visibleRows.map((row) => {
+          const summary = parseLinkSummary(row.summaryJson);
+          return {
+            groupKey: row.groupKey,
+            technicalConfidence: row.technicalConfidence,
+            responseCount: row.aggregate.responseCount,
+            strongLinkCount: row.aggregate.strongLinkCount,
+            supportLinkCount: row.aggregate.supportLinkCount,
+            reasonCodes: summary.reasonCodes,
+            topFamilies: summary.topFamilies,
+          };
+        }),
+        hasNext: liveRows.length > RESPONSE_SUSPICION_GROUP_LIST_LIMIT,
+      }),
+    );
+  })
+  .get("/:id/responses/suspicion-groups/:groupKey", async (c) => {
+    const formId = c.req.param("id");
+    const groupKey = c.req.param("groupKey");
+    const run = await getLatestCompletedResponseLinkRun(formId);
+    const empty = {
+      run: run
+        ? {
+            ...run,
+            completedAt: run.completedAt?.toISOString() ?? null,
+          }
+        : null,
+      group: null,
+      members: [],
+      links: [],
+      hasNextMembers: false,
+      hasNextLinks: false,
+    };
+    if (!run) {
+      return c.json(ResponseSuspicionGroupDetailResponseSchema.parse(empty));
+    }
+
+    const [groupRow] = await db
+      .select({
+        id: responseSuspicionGroup.id,
+        groupKey: responseSuspicionGroup.groupKey,
+        technicalConfidence: responseSuspicionGroup.technicalConfidence,
+        responseCount: responseSuspicionGroup.responseCount,
+        strongLinkCount: responseSuspicionGroup.strongLinkCount,
+        supportLinkCount: responseSuspicionGroup.supportLinkCount,
+        summaryJson: responseSuspicionGroup.summaryJson,
+      })
+      .from(responseSuspicionGroup)
+      .where(
+        and(
+          eq(responseSuspicionGroup.runId, run.id),
+          eq(responseSuspicionGroup.groupKey, groupKey),
+        ),
+      )
+      .limit(1);
+
+    if (!groupRow) {
+      return c.json(errorResponse("Suspicion group not found"), 404);
+    }
+    const aggregates = await getLiveResponseSuspicionGroupAggregates(run.id, [
+      groupRow,
+    ]);
+    const aggregate = aggregates.get(groupRow.id);
+    if (
+      !aggregate ||
+      aggregate.responseCount < 2 ||
+      aggregate.strongLinkCount + aggregate.supportLinkCount === 0
+    ) {
+      return c.json(errorResponse("Suspicion group not found"), 404);
+    }
+
+    const memberRows = await db
+      .select({
+        responseId: responseSuspicionGroupMember.responseId,
+        submittedAt: formResponse.submittedAt,
+        respondentUuid: formResponse.respondentUuid,
+        strongestStrength: responseSuspicionGroupMember.strongestStrength,
+        strongestEvidence: responseSuspicionGroupMember.strongestEvidence,
+      })
+      .from(responseSuspicionGroupMember)
+      .innerJoin(
+        formResponse,
+        eq(responseSuspicionGroupMember.responseId, formResponse.id),
+      )
+      .where(eq(responseSuspicionGroupMember.groupId, groupRow.id))
+      .orderBy(desc(formResponse.submittedAt))
+      .limit(RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT + 1);
+
+    const members = memberRows.slice(0, RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT);
+    const memberIdList = members.map((member) => member.responseId);
+    const rawLinkRows =
+      memberIdList.length > 0
+        ? await db
+            .select({
+              responseIdA: responsePairLink.responseIdA,
+              responseIdB: responsePairLink.responseIdB,
+              strength: responsePairLink.strength,
+              deviceEvidence: responsePairLink.deviceEvidence,
+              v4Support: responsePairLink.v4Support,
+              v6Strong: responsePairLink.v6Strong,
+              stateSupport: responsePairLink.stateSupport,
+              breakdownJson: responsePairLink.breakdownJson,
+            })
+            .from(responsePairLink)
+            .where(
+              and(
+                eq(responsePairLink.runId, run.id),
+                inArray(responsePairLink.responseIdA, memberIdList),
+                inArray(responsePairLink.responseIdB, memberIdList),
+              ),
+            )
+            .limit(RESPONSE_SUSPICION_GROUP_LINK_LIMIT + 1)
+        : [];
+    const linkRows = rawLinkRows.slice(0, RESPONSE_SUSPICION_GROUP_LINK_LIMIT);
+    const summary = parseLinkSummary(groupRow.summaryJson);
+
+    return c.json(
+      ResponseSuspicionGroupDetailResponseSchema.parse({
+        run: {
+          ...run,
+          completedAt: run.completedAt?.toISOString() ?? null,
+        },
+        group: {
+          groupKey: groupRow.groupKey,
+          technicalConfidence: groupRow.technicalConfidence,
+          responseCount: aggregate.responseCount,
+          strongLinkCount: aggregate.strongLinkCount,
+          supportLinkCount: aggregate.supportLinkCount,
+          reasonCodes: summary.reasonCodes,
+          topFamilies: summary.topFamilies,
+        },
+        members: members.map((member) => ({
+          responseId: member.responseId,
+          submittedAt: member.submittedAt.toISOString(),
+          respondentUuid: member.respondentUuid,
+          strongestStrength: member.strongestStrength,
+          strongestEvidence: member.strongestEvidence,
+        })),
+        links: linkRows.map((link) => {
+          const breakdown = parsePairBreakdown(link.breakdownJson);
+          return {
+            responseIdA: link.responseIdA,
+            responseIdB: link.responseIdB,
+            strength: link.strength,
+            deviceEvidence: link.deviceEvidence,
+            v4Support: link.v4Support,
+            v6Strong: link.v6Strong,
+            stateSupport: link.stateSupport,
+            reasonCodes: breakdown.reasonCodes,
+            familyContributions: breakdown.familyContributions,
+          };
+        }),
+        hasNextMembers:
+          memberRows.length > RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT,
+        hasNextLinks: rawLinkRows.length > RESPONSE_SUSPICION_GROUP_LINK_LIMIT,
+      }),
+    );
+  })
+  .post(
+    "/:id/responses/link-analysis/recalculate",
+    createRateLimit({ windowMs: 60_000, maxRequests: 10 }),
+    async (c) => {
+      const formId = c.req.param("id");
+      const result = await enqueueResponseLinkAnalysisJob({
+        formId,
+        reason: "manual",
+      });
+      return c.json(
+        ResponseLinkAnalysisRecalculateResponseSchema.parse(result),
+        202,
+      );
+    },
+  )
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
     const responseId = c.req.param("responseId");
@@ -2365,6 +2910,18 @@ export const formsResponsesRouter = createHonoApp()
           .where(eq(externalServiceValidationResult.responseId, responseId));
         await tx.delete(formResponse).where(eq(formResponse.id, responseId));
       });
+      enqueueDeletionResponseLinkAnalysis(formId).catch((error) => {
+        logError(
+          "Failed to schedule response link analysis after deletion",
+          "forms-responses",
+          {
+            error,
+            responseId,
+            formId,
+            reason: "response-deleted",
+          },
+        );
+      });
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
@@ -2433,6 +2990,18 @@ export const formsResponsesRouter = createHonoApp()
             results.push({ responseId: id, status: "deleted" });
             deletedCount++;
           }
+          enqueueDeletionResponseLinkAnalysis(formId).catch((error) => {
+            logError(
+              "Failed to schedule response link analysis after deletion",
+              "forms-responses",
+              {
+                error,
+                formId,
+                deletedCount: idsToDelete.length,
+                reason: "response-deleted",
+              },
+            );
+          });
         } catch {
           for (const id of idsToDelete) {
             results.push({

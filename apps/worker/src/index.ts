@@ -15,6 +15,11 @@ import { z } from "zod";
 import { handleFormSubmitNotifications } from "./handlers/form-submit-notifications";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import {
+  closeResponseLinkAnalysisResources,
+  handleResponseLinkAnalysis,
+  startResponseLinkAnalysisDirtySweeper,
+} from "./handlers/response-link-analysis";
+import {
   AUTH_REQUIRED_SYNC_ERROR_PREFIX,
   handleSheetsSync,
 } from "./handlers/sheets-sync";
@@ -37,6 +42,7 @@ import { createWorker } from "./lib/worker-factory";
 import {
   FORM_SUBMIT_NOTIFICATION_QUEUE,
   GOOGLE_SHEETS_SYNC_QUEUE,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
   selectWorkerQueues,
   validateWorkerQueuesEnv,
 } from "./lib/worker-queue-selection";
@@ -233,6 +239,15 @@ async function main() {
     );
   }
 
+  if (selectedQueues.includeResponseLinkAnalysis) {
+    workers.push(
+      createWorker(RESPONSE_LINK_ANALYSIS_QUEUE, handleResponseLinkAnalysis, {
+        concurrency: 1,
+      }),
+    );
+    startResponseLinkAnalysisDirtySweeper();
+  }
+
   if (workers.length === 0) {
     throw new Error(
       "Internal error: worker list is empty after queue selection",
@@ -343,6 +358,7 @@ async function main() {
     closeMetricsQueues,
     closeSheetsSyncQueue,
     closePublisher,
+    closeResponseLinkAnalysisResources,
     closePluginDriftGuard,
     closeLockClient,
     flushSentry,
