@@ -371,7 +371,7 @@ describe("analyzeResponseLinks", () => {
     );
   });
 
-  it("skips extreme high-confidence buckets instead of materializing millions of pairs", async () => {
+  it("degrades extreme high-confidence buckets to representative pairs", async () => {
     mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
       id: `response-${index.toString().padStart(4, "0")}`,
       sessionId: "same-session",
@@ -381,13 +381,18 @@ describe("analyzeResponseLinks", () => {
 
     const result = await analyzeResponseLinks("form-1");
 
-    expect(result.linkCount).toBe(0);
-    expect(result.groupCount).toBe(0);
+    expect(result.linkCount).toBe(1001);
+    expect(result.groupCount).toBe(1);
+    const pairInsertValues = mocks.txInsertedRows
+      .filter((entry) => entry.table === "responsePairLink")
+      .flatMap((entry) => (Array.isArray(entry.values) ? entry.values : []));
+    expect(pairInsertValues).toHaveLength(1001);
     const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         metadataJson: expect.objectContaining({
           candidatePairLimitExceeded: true,
+          candidatePairCount: 1001,
           skippedCandidateBucketCount: 1,
         }),
         status: "COMPLETED",

@@ -289,6 +289,7 @@ function addBucketPairs(
   options: {
     bucketLimitExceededIsTruncated?: boolean;
     bucketLimit?: number;
+    degradeOversizedBucketToRepresentativePairs?: boolean;
     enforceCandidateLimit?: boolean;
     highConfidenceBucketPairLimit?: number;
     maxCandidatePairs: number;
@@ -303,11 +304,22 @@ function addBucketPairs(
     };
   }
   const pairCount = (ids.length * (ids.length - 1)) / 2;
+  const addRepresentativePairs = (): BucketPairAddResult => {
+    for (let index = 0; index < ids.length - 1; index += 1) {
+      const left = ids[index];
+      const right = ids[index + 1];
+      if (!left || !right) continue;
+      candidatePairs.add(pairKey(left, right));
+    }
+    return { skippedBucketCount: 1, truncated: true };
+  };
   if (
     options.highConfidenceBucketPairLimit !== undefined &&
     pairCount > options.highConfidenceBucketPairLimit
   ) {
-    return { skippedBucketCount: 1, truncated: true };
+    return options.degradeOversizedBucketToRepresentativePairs === true
+      ? addRepresentativePairs()
+      : { skippedBucketCount: 1, truncated: true };
   }
   const newPairKeys: string[] = [];
   for (let i = 0; i < ids.length; i += 1) {
@@ -435,6 +447,7 @@ function buildCandidatePairs(
   ]) {
     for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
+        degradeOversizedBucketToRepresentativePairs: true,
         enforceCandidateLimit: false,
         highConfidenceBucketPairLimit: HIGH_CONFIDENCE_BUCKET_PAIR_LIMIT,
         maxCandidatePairs,

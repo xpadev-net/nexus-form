@@ -12,6 +12,7 @@ import {
 } from "@nexus-form/shared";
 import { type DefaultJobOptions, Queue } from "bullmq";
 import Redis from "ioredis";
+import { logWarn } from "./logger";
 import { getRedisConnection } from "./redis";
 
 const JOB_RETENTION_DEFAULTS = {
@@ -157,12 +158,23 @@ async function markResponseLinkAnalysisDirty(
     reason: "response-submitted" | "response-deleted" | "manual";
   },
 ): Promise<void> {
-  await getResponseLinkAnalysisDirtyClient().set(
-    getResponseLinkAnalysisDirtyKey(jobData.formId),
-    randomUUID(),
-    "EX",
-    RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
-  );
+  try {
+    await getResponseLinkAnalysisDirtyClient().set(
+      getResponseLinkAnalysisDirtyKey(jobData.formId),
+      randomUUID(),
+      "EX",
+      RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
+    );
+  } catch (error) {
+    logWarn(
+      "Failed to mark response-link analysis dirty before rescue enqueue",
+      "api",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        formId: jobData.formId,
+      },
+    );
+  }
   await addJobWithCleanup(queue, {
     delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
     jobData,

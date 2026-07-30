@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => {
     redisDisconnect: vi.fn(),
     redisQuit: vi.fn(async () => "OK"),
     redisSet: vi.fn(async () => "OK"),
+    logWarn: vi.fn(),
   };
 });
 
@@ -68,6 +69,10 @@ vi.mock("../redis", () => ({
   getRedisConnection: mocks.getRedisConnection,
 }));
 
+vi.mock("../logger", () => ({
+  logWarn: mocks.logWarn,
+}));
+
 describe("queues", () => {
   beforeEach(async () => {
     await closeQueues();
@@ -76,6 +81,7 @@ describe("queues", () => {
     mocks.redisDisconnect.mockClear();
     mocks.redisQuit.mockClear();
     mocks.redisSet.mockClear();
+    mocks.logWarn.mockClear();
     mocks.queueInstances.length = 0;
   });
 
@@ -407,7 +413,9 @@ describe("queues", () => {
       { formId: "form-1", reason: "response-deleted" },
       {
         delay: 10_000,
-        jobId: "response-link-analysis.form-1.dirty.178528321",
+        jobId: expect.stringMatching(
+          /^response-link-analysis\.form-1\.dirty\.\d+$/,
+        ),
       },
     );
   });
@@ -481,7 +489,9 @@ describe("queues", () => {
       { formId: "form-1", reason: "response-deleted" },
       {
         delay: 10_000,
-        jobId: "response-link-analysis.form-1.dirty.178528321",
+        jobId: expect.stringMatching(
+          /^response-link-analysis\.form-1\.dirty\.\d+$/,
+        ),
       },
     );
   });
@@ -571,6 +581,50 @@ describe("queues", () => {
       expect.any(String),
       "EX",
       86_400,
+    );
+  });
+
+  it("still enqueues a dirty rescue job when the dirty marker write fails", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    mocks.redisSet.mockRejectedValueOnce(new Error("redis unavailable"));
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (
+        jobId === "response-link-analysis.form-1" ||
+        jobId === "response-link-analysis.form-1.follow-up" ||
+        jobId === "response-link-analysis.form-1.overflow"
+      ) {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    const result = await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(result).toEqual({ enqueued: false, status: "dirty" });
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "Failed to mark response-link analysis dirty before rescue enqueue",
+      "api",
+      expect.objectContaining({
+        error: "redis unavailable",
+        formId: "form-1",
+      }),
+    );
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      {
+        delay: 10_000,
+        jobId: expect.stringMatching(
+          /^response-link-analysis\.form-1\.dirty\.\d+$/,
+        ),
+      },
     );
   });
 
