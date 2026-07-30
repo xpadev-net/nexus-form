@@ -238,14 +238,21 @@ function buildLayout(
     .stop()
     .tick(180);
 
+  for (const node of layoutNodes) {
+    node.x = Math.min(graphWidth - 28, Math.max(28, node.x ?? graphWidth / 2));
+    node.y = Math.min(
+      graphHeight - 28,
+      Math.max(28, node.y ?? graphHeight / 2),
+    );
+  }
+
   return {
-    nodes: layoutNodes
-      .filter((node) => !node.hidden)
-      .map((node) => ({
-        ...node,
-        x: Math.min(graphWidth - 28, Math.max(28, node.x ?? graphWidth / 2)),
-        y: Math.min(graphHeight - 28, Math.max(28, node.y ?? graphHeight / 2)),
-      })),
+    nodes: layoutNodes.filter(
+      (node): node is LayoutNode & { x: number; y: number } =>
+        !node.hidden &&
+        typeof node.x === "number" &&
+        typeof node.y === "number",
+    ),
     links: layoutLinks.filter(
       (link): link is PositionedLayoutLink =>
         link.edge !== null &&
@@ -291,6 +298,239 @@ function EdgeEvidence({ edge }: { edge: GraphEdge }) {
         ))}
       </div>
     </div>
+  );
+}
+
+type ResponseRelationGraphCanvasProps = {
+  layout: LayoutResult;
+  selectedEdge: GraphEdge | null;
+  selectedResponseId: string | null;
+  onHoverEdge: (edge: GraphEdge | null) => void;
+  onSelectEdge: (edge: GraphEdge) => void;
+  onSelectResponse: (responseId: string) => void;
+};
+
+function ResponseRelationGraphCanvas({
+  layout,
+  selectedEdge,
+  selectedResponseId,
+  onHoverEdge,
+  onSelectEdge,
+  onSelectResponse,
+}: ResponseRelationGraphCanvasProps) {
+  return (
+    <div className="relative overflow-hidden rounded-md border bg-background">
+      <svg
+        role="img"
+        aria-label="回答の関係グラフ"
+        viewBox={`0 0 ${graphWidth} ${graphHeight}`}
+        className="h-[520px] w-full"
+      >
+        <rect
+          width={graphWidth}
+          height={graphHeight}
+          className="fill-muted/20"
+        />
+        {layout.links.map((link) => {
+          const edge = link.edge;
+          const source = link.source;
+          const target = link.target;
+          const title = edgeTitle(edge);
+          const isSelected = selectedEdge
+            ? edgeKey(selectedEdge) === edgeKey(edge)
+            : false;
+          return (
+            <g key={edgeKey(edge)}>
+              <title>{title}</title>
+              <line
+                x1={source.x ?? graphWidth / 2}
+                y1={source.y ?? graphHeight / 2}
+                x2={target.x ?? graphWidth / 2}
+                y2={target.y ?? graphHeight / 2}
+                className={[
+                  edgeStrokeClass(edge.strength),
+                  isSelected ? "opacity-100" : "opacity-60",
+                ].join(" ")}
+                strokeWidth={edgeWidth(edge.strength)}
+              />
+              <a
+                href={`#relation-${edgeKey(edge)}`}
+                aria-label={`リンク ${title}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  onSelectEdge(edge);
+                }}
+                onFocus={() => onHoverEdge(edge)}
+                onKeyDown={(event) => {
+                  if (event.key !== " ") return;
+                  event.preventDefault();
+                  onSelectEdge(edge);
+                }}
+                onMouseEnter={() => onHoverEdge(edge)}
+                onMouseLeave={() => onHoverEdge(null)}
+                onBlur={() => onHoverEdge(null)}
+              >
+                <line
+                  x1={source.x ?? graphWidth / 2}
+                  y1={source.y ?? graphHeight / 2}
+                  x2={target.x ?? graphWidth / 2}
+                  y2={target.y ?? graphHeight / 2}
+                  className="cursor-pointer stroke-transparent"
+                  pointerEvents="stroke"
+                  strokeWidth={18}
+                />
+              </a>
+            </g>
+          );
+        })}
+        {layout.nodes.map((layoutNode) => {
+          const node = layoutNode.node;
+          if (!node) return null;
+          return (
+            <a
+              key={node.responseId}
+              href={`#response-${node.responseId}`}
+              aria-label={`回答 ${responseShortId(node.responseId)} を表示`}
+              onClick={(event) => {
+                event.preventDefault();
+                onSelectResponse(node.responseId);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== " ") return;
+                event.preventDefault();
+                onSelectResponse(node.responseId);
+              }}
+            >
+              <title>
+                {responseShortId(node.responseId)} /{" "}
+                {strengthLabel(node.strongestStrength)}
+              </title>
+              <circle
+                cx={layoutNode.x}
+                cy={layoutNode.y}
+                r={selectedResponseId === node.responseId ? 12 : 9}
+                className={[
+                  nodeFillClass(
+                    node.strongestStrength,
+                    selectedResponseId === node.responseId,
+                  ),
+                  "cursor-pointer stroke-background stroke-2",
+                ].join(" ")}
+              />
+              <text
+                x={layoutNode.x}
+                y={layoutNode.y + 23}
+                textAnchor="middle"
+                className="pointer-events-none fill-muted-foreground text-[10px]"
+              >
+                {responseShortId(node.responseId)}
+              </text>
+            </a>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+type ResponseRelationGraphSidebarProps = {
+  graph: ResponseRelationGraphResponse;
+  selectedEdge: GraphEdge | null;
+  selectedCluster: DenseCluster | null;
+  onSelectCluster: (cluster: DenseCluster) => void;
+  onSelectResponse: (responseId: string) => void;
+};
+
+function ResponseRelationGraphSidebar({
+  graph,
+  selectedEdge,
+  selectedCluster,
+  onSelectCluster,
+  onSelectResponse,
+}: ResponseRelationGraphSidebarProps) {
+  return (
+    <aside className="space-y-4">
+      <div className="rounded-md border p-3">
+        <h3 className="text-sm font-semibold">リンク根拠</h3>
+        {selectedEdge ? (
+          <div className="mt-3 space-y-3">
+            <p className="break-all font-mono text-xs text-muted-foreground">
+              {selectedEdge.responseIdA} / {selectedEdge.responseIdB}
+            </p>
+            <EdgeEvidence edge={selectedEdge} />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onSelectResponse(selectedEdge.responseIdA)}
+              >
+                Aを表示
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onSelectResponse(selectedEdge.responseIdB)}
+              >
+                Bを表示
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">
+            edgeにマウスを重ねると、合致した要素を表示します。
+          </p>
+        )}
+      </div>
+
+      {graph.denseClusters.length > 0 && (
+        <div className="rounded-md border p-3">
+          <h3 className="text-sm font-semibold">クラスタ</h3>
+          <div className="mt-2 space-y-2">
+            {graph.denseClusters.map((cluster) => (
+              <button
+                key={cluster.id}
+                type="button"
+                className={[
+                  "w-full rounded-md border p-2 text-left text-sm hover:bg-muted/40",
+                  selectedCluster?.id === cluster.id
+                    ? "border-primary bg-primary/5"
+                    : "",
+                ].join(" ")}
+                onClick={() => onSelectCluster(cluster)}
+              >
+                <span className="font-medium">
+                  {cluster.responseIds.length}件 /{" "}
+                  {strengthLabel(cluster.strength)}
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {reasonLabel(cluster.reasonCode)} / {cluster.pairCount}ペア
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {selectedCluster && (
+        <div className="rounded-md border p-3">
+          <h3 className="text-sm font-semibold">クラスタ内回答</h3>
+          <div className="mt-2 max-h-64 space-y-1 overflow-auto">
+            {selectedCluster.responseIds.map((responseId) => (
+              <button
+                key={responseId}
+                type="button"
+                className="block w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-muted"
+                onClick={() => onSelectResponse(responseId)}
+              >
+                {responseId}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </aside>
   );
 }
 
@@ -409,210 +649,21 @@ export function ResponseRelationGraph({
       )}
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="relative overflow-hidden rounded-md border bg-background">
-          <svg
-            role="img"
-            aria-label="回答の関係グラフ"
-            viewBox={`0 0 ${graphWidth} ${graphHeight}`}
-            className="h-[520px] w-full"
-          >
-            <rect
-              width={graphWidth}
-              height={graphHeight}
-              className="fill-muted/20"
-            />
-            {layout.links.map((link) => {
-              const edge = link.edge;
-              const source = link.source;
-              const target = link.target;
-              const title = edgeTitle(edge);
-              const isSelected = selectedEdge
-                ? edgeKey(selectedEdge) === edgeKey(edge)
-                : false;
-              return (
-                <g key={edgeKey(edge)}>
-                  <title>{title}</title>
-                  <line
-                    x1={source.x ?? graphWidth / 2}
-                    y1={source.y ?? graphHeight / 2}
-                    x2={target.x ?? graphWidth / 2}
-                    y2={target.y ?? graphHeight / 2}
-                    className={[
-                      edgeStrokeClass(edge.strength),
-                      isSelected ? "opacity-100" : "opacity-60",
-                    ].join(" ")}
-                    strokeWidth={edgeWidth(edge.strength)}
-                  />
-                  <a
-                    href={`#relation-${edgeKey(edge)}`}
-                    aria-label={`リンク ${title}`}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      selectEdgeResponse(edge);
-                    }}
-                    onFocus={() => setHoveredEdge(edge)}
-                    onKeyDown={(event) => {
-                      if (event.key !== " ") return;
-                      event.preventDefault();
-                      selectEdgeResponse(edge);
-                    }}
-                    onMouseEnter={() => setHoveredEdge(edge)}
-                    onMouseLeave={() => setHoveredEdge(null)}
-                    onBlur={() => setHoveredEdge(null)}
-                  >
-                    <line
-                      x1={source.x ?? graphWidth / 2}
-                      y1={source.y ?? graphHeight / 2}
-                      x2={target.x ?? graphWidth / 2}
-                      y2={target.y ?? graphHeight / 2}
-                      className="cursor-pointer stroke-transparent"
-                      pointerEvents="stroke"
-                      strokeWidth={18}
-                    />
-                  </a>
-                </g>
-              );
-            })}
-            {layout.nodes.map((layoutNode) => {
-              const node = layoutNode.node;
-              if (!node) return null;
-              return (
-                <g key={node.responseId}>
-                  <title>
-                    {responseShortId(node.responseId)} /{" "}
-                    {strengthLabel(node.strongestStrength)}
-                  </title>
-                  <circle
-                    cx={layoutNode.x}
-                    cy={layoutNode.y}
-                    r={selectedResponseId === node.responseId ? 12 : 9}
-                    className={[
-                      nodeFillClass(
-                        node.strongestStrength,
-                        selectedResponseId === node.responseId,
-                      ),
-                      "stroke-background stroke-2",
-                    ].join(" ")}
-                  />
-                  <text
-                    x={layoutNode.x}
-                    y={layoutNode.y + 23}
-                    textAnchor="middle"
-                    className="fill-muted-foreground text-[10px]"
-                  >
-                    {responseShortId(node.responseId)}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
-          <div className="pointer-events-none absolute inset-0">
-            {layout.nodes.map((layoutNode) => {
-              const node = layoutNode.node;
-              if (!node) return null;
-              return (
-                <button
-                  key={node.responseId}
-                  type="button"
-                  aria-label={`回答 ${responseShortId(node.responseId)} を表示`}
-                  title={`${responseShortId(node.responseId)} / ${strengthLabel(
-                    node.strongestStrength,
-                  )}`}
-                  onClick={() => onSelectResponse(node.responseId)}
-                  className="pointer-events-auto absolute h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-transparent p-0"
-                  style={{
-                    left: `${(layoutNode.x / graphWidth) * 100}%`,
-                    top: `${(layoutNode.y / graphHeight) * 100}%`,
-                  }}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        <aside className="space-y-4">
-          <div className="rounded-md border p-3">
-            <h3 className="text-sm font-semibold">リンク根拠</h3>
-            {selectedEdge ? (
-              <div className="mt-3 space-y-3">
-                <p className="break-all font-mono text-xs text-muted-foreground">
-                  {selectedEdge.responseIdA} / {selectedEdge.responseIdB}
-                </p>
-                <EdgeEvidence edge={selectedEdge} />
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onSelectResponse(selectedEdge.responseIdA)}
-                  >
-                    Aを表示
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onSelectResponse(selectedEdge.responseIdB)}
-                  >
-                    Bを表示
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">
-                edgeにマウスを重ねると、合致した要素を表示します。
-              </p>
-            )}
-          </div>
-
-          {graph.denseClusters.length > 0 && (
-            <div className="rounded-md border p-3">
-              <h3 className="text-sm font-semibold">クラスタ</h3>
-              <div className="mt-2 space-y-2">
-                {graph.denseClusters.map((cluster) => (
-                  <button
-                    key={cluster.id}
-                    type="button"
-                    className={[
-                      "w-full rounded-md border p-2 text-left text-sm hover:bg-muted/40",
-                      selectedCluster?.id === cluster.id
-                        ? "border-primary bg-primary/5"
-                        : "",
-                    ].join(" ")}
-                    onClick={() => setSelectedCluster(cluster)}
-                  >
-                    <span className="font-medium">
-                      {cluster.responseIds.length}件 /{" "}
-                      {strengthLabel(cluster.strength)}
-                    </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {reasonLabel(cluster.reasonCode)} / {cluster.pairCount}
-                      ペア
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selectedCluster && (
-            <div className="rounded-md border p-3">
-              <h3 className="text-sm font-semibold">クラスタ内回答</h3>
-              <div className="mt-2 max-h-64 space-y-1 overflow-auto">
-                {selectedCluster.responseIds.map((responseId) => (
-                  <button
-                    key={responseId}
-                    type="button"
-                    className="block w-full rounded px-2 py-1 text-left font-mono text-xs hover:bg-muted"
-                    onClick={() => onSelectResponse(responseId)}
-                  >
-                    {responseId}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </aside>
+        <ResponseRelationGraphCanvas
+          layout={layout}
+          selectedEdge={selectedEdge}
+          selectedResponseId={selectedResponseId}
+          onHoverEdge={setHoveredEdge}
+          onSelectEdge={selectEdgeResponse}
+          onSelectResponse={onSelectResponse}
+        />
+        <ResponseRelationGraphSidebar
+          graph={graph}
+          selectedEdge={selectedEdge}
+          selectedCluster={selectedCluster}
+          onSelectCluster={setSelectedCluster}
+          onSelectResponse={onSelectResponse}
+        />
       </div>
     </div>
   );

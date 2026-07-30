@@ -2839,6 +2839,10 @@ export const formsResponsesRouter = createHonoApp()
             })
             .from(responseSuspicionGroupMember)
             .where(inArray(responseSuspicionGroupMember.groupId, denseGroupIds))
+            .orderBy(
+              asc(responseSuspicionGroupMember.groupId),
+              asc(responseSuspicionGroupMember.responseId),
+            )
             .limit(RESPONSE_RELATION_GRAPH_NODE_LIMIT + 1)
         : [];
     const denseMembersByGroupId = new Map<string, string[]>();
@@ -2868,6 +2872,9 @@ export const formsResponsesRouter = createHonoApp()
             .from(formResponse)
             .where(inArray(formResponse.id, visibleResponseIds))
         : [];
+    const responseRowsById = new Map(
+      responseRows.map((response) => [response.id, response] as const),
+    );
 
     const strongestByResponseId = new Map<
       string,
@@ -2932,18 +2939,22 @@ export const formsResponsesRouter = createHonoApp()
           ...run,
           completedAt: run.completedAt?.toISOString() ?? null,
         },
-        nodes: responseRows.map((response) => {
+        nodes: visibleResponseIds.flatMap((responseId) => {
+          const response = responseRowsById.get(responseId);
+          if (!response) return [];
           const strongest = strongestByResponseId.get(response.id) ?? {
             strongestEvidence: 0,
             strongestStrength: "NONE" as const,
           };
-          return {
-            responseId: response.id,
-            submittedAt: response.submittedAt.toISOString(),
-            respondentUuid: response.respondentUuid,
-            strongestStrength: strongest.strongestStrength,
-            strongestEvidence: strongest.strongestEvidence,
-          };
+          return [
+            {
+              responseId: response.id,
+              submittedAt: response.submittedAt.toISOString(),
+              respondentUuid: response.respondentUuid,
+              strongestStrength: strongest.strongestStrength,
+              strongestEvidence: strongest.strongestEvidence,
+            },
+          ];
         }),
         edges: linkRows
           .filter(
