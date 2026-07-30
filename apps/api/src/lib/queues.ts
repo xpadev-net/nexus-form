@@ -158,12 +158,7 @@ async function markResponseLinkAnalysisDirty(
     reason: "response-submitted" | "response-deleted" | "manual";
   },
 ): Promise<void> {
-  await addJobWithCleanup(queue, {
-    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
-    jobData,
-    jobId: buildResponseLinkAnalysisDirtyJobId(jobData.formId),
-    jobName: jobData.reason,
-  });
+  let markerWritten = false;
   try {
     await getResponseLinkAnalysisDirtyClient().set(
       getResponseLinkAnalysisDirtyKey(jobData.formId),
@@ -171,15 +166,26 @@ async function markResponseLinkAnalysisDirty(
       "EX",
       RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
     );
+    markerWritten = true;
   } catch (error) {
-    logWarn(
-      "Failed to mark response-link analysis dirty before rescue enqueue",
-      "api",
-      {
-        error: error instanceof Error ? error.message : String(error),
-        formId: jobData.formId,
-      },
-    );
+    logWarn("Failed to mark response-link analysis dirty", "api", {
+      error: error instanceof Error ? error.message : String(error),
+      formId: jobData.formId,
+    });
+  }
+  try {
+    await addJobWithCleanup(queue, {
+      delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+      jobData,
+      jobId: buildResponseLinkAnalysisDirtyJobId(jobData.formId),
+      jobName: jobData.reason,
+    });
+  } catch (error) {
+    if (!markerWritten) throw error;
+    logWarn("Failed to enqueue response-link dirty rescue job", "api", {
+      error: error instanceof Error ? error.message : String(error),
+      formId: jobData.formId,
+    });
   }
 }
 

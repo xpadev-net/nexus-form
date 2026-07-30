@@ -17,6 +17,7 @@ import { handleGenericValidation } from "./handlers/generic-validation";
 import {
   closeResponseLinkAnalysisResources,
   handleResponseLinkAnalysis,
+  startResponseLinkAnalysisDirtySweeper,
 } from "./handlers/response-link-analysis";
 import {
   AUTH_REQUIRED_SYNC_ERROR_PREFIX,
@@ -244,6 +245,7 @@ async function main() {
         concurrency: 1,
       }),
     );
+    startResponseLinkAnalysisDirtySweeper();
   }
 
   if (workers.length === 0) {

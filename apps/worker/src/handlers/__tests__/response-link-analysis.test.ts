@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   redisDel: vi.fn(async () => 0),
   redisEval: vi.fn(async () => 0),
   redisGet: vi.fn(async () => null as string | null),
+  redisScan: vi.fn(async () => ["0", []] as [string, string[]]),
   redisQuit: vi.fn(async () => "OK"),
   queueOptions: [] as unknown[],
   staleRunRows: [] as Array<{ id: string }>,
@@ -60,6 +61,7 @@ vi.mock("ioredis", () => ({
       del: mocks.redisDel,
       eval: mocks.redisEval,
       get: mocks.redisGet,
+      scan: mocks.redisScan,
       quit: mocks.redisQuit,
     };
   }),
@@ -139,7 +141,12 @@ import {
   analyzeResponseLinks,
   closeResponseLinkAnalysisResources,
   handleResponseLinkAnalysis,
+  sweepResponseLinkAnalysisDirtyMarkers,
 } from "../response-link-analysis";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 function setupDbMocks() {
   const dbInsertValues = vi.fn().mockResolvedValue(undefined);
@@ -230,6 +237,8 @@ beforeEach(() => {
   mocks.redisEval.mockResolvedValue(0);
   mocks.redisGet.mockReset();
   mocks.redisGet.mockResolvedValue(null);
+  mocks.redisScan.mockReset();
+  mocks.redisScan.mockResolvedValue(["0", []]);
   setupDbMocks();
 });
 
@@ -414,7 +423,7 @@ describe("analyzeResponseLinks", () => {
     );
   });
 
-  it("degrades extreme high-confidence buckets to representative pairs", async () => {
+  it("fails extreme high-confidence buckets instead of publishing partial pairs", async () => {
     mocks.responseRows = Array.from({ length: 1002 }, (_, index) => ({
       id: `response-${index.toString().padStart(4, "0")}`,
       sessionId: "same-session",
@@ -422,24 +431,17 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    const result = await analyzeResponseLinks("form-1");
+    await expect(analyzeResponseLinks("form-1")).rejects.toThrow(
+      "High-confidence response-link bucket would create 501501 pairs",
+    );
 
-    expect(result.linkCount).toBe(1001);
-    expect(result.groupCount).toBe(1);
     const pairInsertValues = mocks.txInsertedRows
       .filter((entry) => entry.table === "responsePairLink")
       .flatMap((entry) => (Array.isArray(entry.values) ? entry.values : []));
-    expect(pairInsertValues).toHaveLength(1001);
-    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(pairInsertValues).toHaveLength(0);
+    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadataJson: expect.objectContaining({
-          candidatePairLimitExceeded: true,
-          candidatePairCount: 1001,
-          skippedCandidateBucketCount: 1,
-        }),
-        status: "COMPLETED",
-      }),
+      expect.objectContaining({ status: "FAILED" }),
     );
   });
 
@@ -555,6 +557,46 @@ describe("analyzeResponseLinks", () => {
 });
 
 describe("handleResponseLinkAnalysis", () => {
+  it("sweeps dirty markers into dirty rescue jobs that consume the marker", async () => {
+    mocks.redisScan.mockResolvedValueOnce([
+      "0",
+      [
+        "response-link-analysis:dirty:form-1",
+        "response-link-analysis:dirty:",
+        "unrelated:key",
+      ],
+    ]);
+
+    const sweptCount = await sweepResponseLinkAnalysisDirtyMarkers();
+
+    expect(sweptCount).toBe(1);
+    const queueAddCalls = mocks.queueAdd.mock.calls as unknown[][];
+    const addOptions = queueAddCalls[0]?.[2];
+    if (!isRecord(addOptions) || typeof addOptions.jobId !== "string") {
+      throw new Error("Expected dirty rescue job options with a jobId");
+    }
+    expect(addOptions).toEqual({
+      delay: 10_000,
+      jobId: expect.stringMatching(
+        /^response-link-analysis\.form-1\.dirty\.\d+$/,
+      ),
+    });
+    expect(mocks.queueAdd).toHaveBeenCalledWith(
+      "response-submitted",
+      { formId: "form-1", reason: "response-submitted" },
+      addOptions,
+    );
+
+    await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "response-submitted" },
+      id: addOptions.jobId,
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    expect(mocks.redisDel).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+    );
+  });
+
   it("serializes analysis with a form lock and purges stale run children", async () => {
     mocks.staleRunRows = [{ id: "stale-run-1" }];
 

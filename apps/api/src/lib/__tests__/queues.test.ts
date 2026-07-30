@@ -551,7 +551,7 @@ describe("queues", () => {
     );
   });
 
-  it("does not orphan a dirty marker when dirty rescue enqueue fails", async () => {
+  it("keeps a dirty marker for the worker sweeper when dirty rescue enqueue fails", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
     queue?.add.mockRejectedValueOnce(new Error("queue unavailable"));
@@ -574,9 +574,22 @@ describe("queues", () => {
         formId: "form-1",
         reason: "response-deleted",
       }),
-    ).rejects.toThrow("queue unavailable");
+    ).resolves.toEqual({ enqueued: false, status: "dirty" });
 
-    expect(mocks.redisSet).not.toHaveBeenCalled();
+    expect(mocks.redisSet).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+      expect.any(String),
+      "EX",
+      86_400,
+    );
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "Failed to enqueue response-link dirty rescue job",
+      "api",
+      expect.objectContaining({
+        error: "queue unavailable",
+        formId: "form-1",
+      }),
+    );
   });
 
   it("still enqueues a dirty rescue job when the dirty marker write fails", async () => {
@@ -604,7 +617,7 @@ describe("queues", () => {
 
     expect(result).toEqual({ enqueued: false, status: "dirty" });
     expect(mocks.logWarn).toHaveBeenCalledWith(
-      "Failed to mark response-link analysis dirty before rescue enqueue",
+      "Failed to mark response-link analysis dirty",
       "api",
       expect.objectContaining({
         error: "redis unavailable",
@@ -621,6 +634,33 @@ describe("queues", () => {
         ),
       },
     );
+  });
+
+  it("rejects dirty marking when both the marker write and rescue enqueue fail", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    mocks.redisSet.mockRejectedValueOnce(new Error("redis unavailable"));
+    queue?.add.mockRejectedValueOnce(new Error("queue unavailable"));
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (
+        jobId === "response-link-analysis.form-1" ||
+        jobId === "response-link-analysis.form-1.follow-up" ||
+        jobId === "response-link-analysis.form-1.overflow"
+      ) {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await expect(
+      enqueueResponseLinkAnalysisJob({
+        formId: "form-1",
+        reason: "response-deleted",
+      }),
+    ).rejects.toThrow("queue unavailable");
   });
 
   it("quits the response-link analysis dirty client on close", async () => {

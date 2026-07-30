@@ -12,6 +12,7 @@ import {
 import {
   addJobWithCleanup,
   buildRarityStats,
+  buildResponseLinkAnalysisDirtyJobId,
   buildResponseLinkAnalysisJobId,
   buildResponseSuspicionGroups,
   evaluateResponsePairLink,
@@ -39,6 +40,7 @@ const INSERT_CHUNK_SIZE = 500;
 const LOCK_ACQUIRE_TIMEOUT_MS = 30 * 60_000;
 const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
 const LOCK_RETRY_DELAY_MS = 30_000;
+const DIRTY_MARKER_SWEEP_INTERVAL_MS = 60_000;
 const RESPONSE_LINK_ANALYSIS_JOB_DEFAULTS: DefaultJobOptions = {
   attempts: 2,
   backoff: {
@@ -74,6 +76,10 @@ type ResponseRow = {
 
 let responseLinkAnalysisQueue: Queue<ResponseLinkAnalysisJobData> | null = null;
 let responseLinkAnalysisDirtyClient: Redis | null = null;
+let responseLinkAnalysisDirtySweepInterval: ReturnType<
+  typeof setInterval
+> | null = null;
+let responseLinkAnalysisDirtySweepRunning = false;
 
 function isDuplicateKeyError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -120,6 +126,11 @@ function getResponseLinkAnalysisDirtyClient(): Redis {
 }
 
 export async function closeResponseLinkAnalysisResources(): Promise<void> {
+  if (responseLinkAnalysisDirtySweepInterval) {
+    clearInterval(responseLinkAnalysisDirtySweepInterval);
+    responseLinkAnalysisDirtySweepInterval = null;
+  }
+  responseLinkAnalysisDirtySweepRunning = false;
   const queue = responseLinkAnalysisQueue;
   const dirtyClient = responseLinkAnalysisDirtyClient;
   responseLinkAnalysisQueue = null;
@@ -154,6 +165,17 @@ async function getResponseLinkAnalysisDirtyMarker(
   );
 }
 
+function responseLinkAnalysisDirtyKeyPrefix(): string {
+  return getResponseLinkAnalysisDirtyKey("");
+}
+
+function formIdFromResponseLinkAnalysisDirtyKey(key: string): string | null {
+  const prefix = responseLinkAnalysisDirtyKeyPrefix();
+  if (!key.startsWith(prefix)) return null;
+  const formId = key.slice(prefix.length);
+  return formId.length > 0 ? formId : null;
+}
+
 function isActiveJobState(state: unknown): boolean {
   return state === "active" || state === "waiting-children";
 }
@@ -173,6 +195,58 @@ async function enqueueDirtyResponseLinkFollowUp(
     !isActiveJobState(result.existingJobState) &&
     result.outcome !== "delayed-job-state-changed"
   );
+}
+
+async function enqueueDirtyResponseLinkRescue(formId: string): Promise<void> {
+  const queue = getResponseLinkAnalysisQueue();
+  await addJobWithCleanup(queue, {
+    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+    jobData: { formId, reason: "response-submitted" },
+    jobId: buildResponseLinkAnalysisDirtyJobId(formId),
+    jobName: "response-submitted",
+  });
+}
+
+export async function sweepResponseLinkAnalysisDirtyMarkers(): Promise<number> {
+  const client = getResponseLinkAnalysisDirtyClient();
+  const prefix = responseLinkAnalysisDirtyKeyPrefix();
+  let cursor = "0";
+  let sweptCount = 0;
+  do {
+    const [nextCursor, keys] = await client.scan(
+      cursor,
+      "MATCH",
+      `${prefix}*`,
+      "COUNT",
+      100,
+    );
+    cursor = nextCursor;
+    for (const key of keys) {
+      const formId = formIdFromResponseLinkAnalysisDirtyKey(key);
+      if (!formId) continue;
+      await enqueueDirtyResponseLinkRescue(formId);
+      sweptCount += 1;
+    }
+  } while (cursor !== "0");
+  return sweptCount;
+}
+
+export function startResponseLinkAnalysisDirtySweeper(
+  intervalMs = DIRTY_MARKER_SWEEP_INTERVAL_MS,
+): void {
+  if (responseLinkAnalysisDirtySweepInterval) return;
+  responseLinkAnalysisDirtySweepInterval = setInterval(() => {
+    if (responseLinkAnalysisDirtySweepRunning) return;
+    responseLinkAnalysisDirtySweepRunning = true;
+    sweepResponseLinkAnalysisDirtyMarkers()
+      .catch((error) => {
+        console.error("Response-link dirty marker sweep failed", error);
+      })
+      .finally(() => {
+        responseLinkAnalysisDirtySweepRunning = false;
+      });
+  }, intervalMs);
+  responseLinkAnalysisDirtySweepInterval.unref?.();
 }
 
 async function acquireFormAnalysisLock(
@@ -301,7 +375,6 @@ function addBucketPairs(
   options: {
     bucketLimitExceededIsTruncated?: boolean;
     bucketLimit?: number;
-    degradeOversizedBucketToRepresentativePairs?: boolean;
     enforceCandidateLimit?: boolean;
     highConfidenceBucketPairLimit?: number;
     maxCandidatePairs: number;
@@ -316,22 +389,13 @@ function addBucketPairs(
     };
   }
   const pairCount = (ids.length * (ids.length - 1)) / 2;
-  const addRepresentativePairs = (): BucketPairAddResult => {
-    for (let index = 0; index < ids.length - 1; index += 1) {
-      const left = ids[index];
-      const right = ids[index + 1];
-      if (!left || !right) continue;
-      candidatePairs.add(pairKey(left, right));
-    }
-    return { skippedBucketCount: 1, truncated: true };
-  };
   if (
     options.highConfidenceBucketPairLimit !== undefined &&
     pairCount > options.highConfidenceBucketPairLimit
   ) {
-    return options.degradeOversizedBucketToRepresentativePairs === true
-      ? addRepresentativePairs()
-      : { skippedBucketCount: 1, truncated: true };
+    throw new Error(
+      `High-confidence response-link bucket would create ${pairCount} pairs, exceeding the ${options.highConfidenceBucketPairLimit} pair limit`,
+    );
   }
   const newPairKeys: string[] = [];
   for (let i = 0; i < ids.length; i += 1) {
@@ -459,7 +523,6 @@ function buildCandidatePairs(
   ]) {
     for (const { responseIds } of sortedCandidateBuckets(buckets)) {
       const result = addBucketPairs(candidatePairs, responseIds, {
-        degradeOversizedBucketToRepresentativePairs: true,
         enforceCandidateLimit: false,
         highConfidenceBucketPairLimit: HIGH_CONFIDENCE_BUCKET_PAIR_LIMIT,
         maxCandidatePairs,
@@ -705,10 +768,11 @@ async function persistResults(params: {
  * Builds and persists response-link shadow results for one form.
  *
  * Candidate generation keeps high-confidence session/respondent/visitor/v6
- * buckets complete while they fit the per-bucket safety bound. Lower-confidence
- * device, v4, and user-agent buckets are capped by `maxCandidatePairs`; buckets
- * that exceed their bound are skipped in a stable order and reported in
- * completed-run metadata.
+ * buckets complete while they fit the per-bucket safety bound. High-confidence
+ * buckets that exceed that bound fail the replacement run instead of publishing
+ * partial pair links. Lower-confidence device, v4, and user-agent buckets are
+ * capped by `maxCandidatePairs`; buckets that exceed their bound are skipped in
+ * a stable order and reported in completed-run metadata.
  */
 export async function analyzeResponseLinks(
   formId: string,
