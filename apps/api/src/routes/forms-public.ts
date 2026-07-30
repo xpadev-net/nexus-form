@@ -34,6 +34,7 @@ import {
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
+  MIN_SECURITY_OBSERVATION_COUNT,
   responsePayloadItemSchema,
   SECURITY_OBSERVATION_FAMILY_BROWSER,
   SECURITY_OBSERVATION_FAMILY_FPJS,
@@ -118,6 +119,7 @@ const SECURITY_EXCHANGE_COOKIE_NAME = "nf_sc";
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
+const SECURITY_EXCHANGE_CLEANUP_BATCH_SIZE = 500;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
@@ -236,7 +238,10 @@ const exchangeCloseSchema = z
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
     p: z.string().min(1).max(MAX_TOKEN_LENGTH),
-    d: z.array(securityEvidenceEntrySchema).min(6).max(512),
+    d: z
+      .array(securityEvidenceEntrySchema)
+      .min(MIN_SECURITY_OBSERVATION_COUNT)
+      .max(512),
   })
   .strict();
 
@@ -613,7 +618,10 @@ function digestSecurityObservations(params: {
   const observedDigests: string[] = [];
   for (const [slot, digest] of params.observations) {
     const entry = slots.get(slot);
-    if (!entry || seenSlots.has(slot)) {
+    if (!entry) {
+      throw new Error(`Unknown security observation slot: ${slot}`);
+    }
+    if (seenSlots.has(slot)) {
       throw new Error("Duplicate security observation");
     }
     seenSlots.add(slot);
@@ -629,7 +637,7 @@ function digestSecurityObservations(params: {
   if (
     missingRequiredSlot ||
     families.size < 2 ||
-    params.observations.length < 6 ||
+    params.observations.length < MIN_SECURITY_OBSERVATION_COUNT ||
     !families.has(SECURITY_OBSERVATION_FAMILY_BROWSER) ||
     (!families.has(SECURITY_OBSERVATION_FAMILY_FPJS) &&
       !families.has(SECURITY_OBSERVATION_FAMILY_THUMBMARK))
@@ -740,23 +748,31 @@ function assertSecurityExchangeRequestContext(request: Request): void {
 async function cleanupExpiredSecurityExchanges(
   currentTime: Date,
 ): Promise<void> {
-  await db
-    .delete(fingerprintCollectionAttempt)
-    .where(
-      and(
-        isNull(fingerprintCollectionAttempt.consumedAt),
-        or(
-          and(
-            isNull(fingerprintCollectionAttempt.finalizedAt),
-            lte(fingerprintCollectionAttempt.challengeExpiresAt, currentTime),
-          ),
-          and(
-            isNotNull(fingerprintCollectionAttempt.finalizedAt),
-            lte(fingerprintCollectionAttempt.collectionExpiresAt, currentTime),
+  let deletedRows = SECURITY_EXCHANGE_CLEANUP_BATCH_SIZE;
+  while (deletedRows >= SECURITY_EXCHANGE_CLEANUP_BATCH_SIZE) {
+    const result = await db
+      .delete(fingerprintCollectionAttempt)
+      .where(
+        and(
+          isNull(fingerprintCollectionAttempt.consumedAt),
+          or(
+            and(
+              isNull(fingerprintCollectionAttempt.finalizedAt),
+              lte(fingerprintCollectionAttempt.challengeExpiresAt, currentTime),
+            ),
+            and(
+              isNotNull(fingerprintCollectionAttempt.finalizedAt),
+              lte(
+                fingerprintCollectionAttempt.collectionExpiresAt,
+                currentTime,
+              ),
+            ),
           ),
         ),
-      ),
-    );
+      )
+      .limit(SECURITY_EXCHANGE_CLEANUP_BATCH_SIZE);
+    deletedRows = result[0]?.affectedRows ?? 0;
+  }
 }
 
 function securityExchangeCookieName(attemptId: string): string {
@@ -776,7 +792,6 @@ async function consumeFingerprintCollectionOrThrow(params: {
   formId: string;
   currentIp: string;
   userAgent: string | undefined;
-  responseId: string;
 }): Promise<{
   attemptId: string | null;
 }> {
@@ -786,7 +801,6 @@ async function consumeFingerprintCollectionOrThrow(params: {
     };
   }
 
-  const now = new Date();
   if (!params.receipt) {
     throw new FingerprintCollectionTokenError();
   }
@@ -822,7 +836,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
     !attempt.finalizedAt ||
     attempt.consumedAt ||
     !attempt.collectionExpiresAt ||
-    attempt.collectionExpiresAt <= now
+    attempt.collectionExpiresAt <= new Date()
   ) {
     throw new FingerprintCollectionTokenError();
   }
@@ -836,11 +850,6 @@ async function consumeFingerprintCollectionOrThrow(params: {
   ) {
     throw new FingerprintCollectionTokenError();
   }
-
-  await params.tx
-    .update(fingerprintCollectionAttempt)
-    .set({ consumedAt: now, consumedResponseId: params.responseId })
-    .where(eq(fingerprintCollectionAttempt.id, attempt.id));
 
   return { attemptId: attempt.id };
 }
@@ -1712,7 +1721,6 @@ export const formsPublicRouter = createHonoApp()
                   formId: target.id,
                   currentIp: ip,
                   userAgent,
-                  responseId,
                 })
               : { attemptId: null };
 
@@ -1834,10 +1842,9 @@ export const formsPublicRouter = createHonoApp()
       // Set session cookie only after a successful submission
       setSessionCookie(c, insertResult.sessionJwt);
 
-      // 11. Load the created response so background jobs can reuse the
-      // database-side submittedAt timestamp.
+      // 11. Confirm the committed response exists before returning its id.
       const [createdResponse] = await db
-        .select()
+        .select({ id: formResponse.id })
         .from(formResponse)
         .where(eq(formResponse.id, responseId))
         .limit(1);

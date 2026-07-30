@@ -239,7 +239,7 @@ function securityPlan(): Array<[string, number, string]> {
 }
 
 function testDigest(index: number): string {
-  return index.toString(16).repeat(64);
+  return index.toString(16).padStart(64, "0").slice(-64);
 }
 
 function mockPublicRpc(

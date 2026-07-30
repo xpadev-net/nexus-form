@@ -1,6 +1,7 @@
 import {
   extractQuestionsFromPlateContent,
   isCompletionTargetPage,
+  MIN_SECURITY_OBSERVATION_COUNT,
   type ResponseDataItem,
   resolvePageIndexByPageId,
   responsePayloadItemSchema,
@@ -649,7 +650,7 @@ function PublicFormPageInner() {
             collectedFp,
             exchangeOpen.q,
           );
-          if (securityEvidence.length < 6) {
+          if (securityEvidence.length < MIN_SECURITY_OBSERVATION_COUNT) {
             throw new Error(
               "セキュリティ確認に失敗しました。ページを再読み込みしてから再度お試しください。",
             );

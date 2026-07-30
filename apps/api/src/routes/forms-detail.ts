@@ -71,6 +71,16 @@ export type UpdateResponseSettingsResponse = z.infer<
   typeof UpdateResponseSettingsResponseSchema
 >;
 
+function omitRemovedResponseSettings(
+  settings: FormStructure["settings"] & { require_fingerprint?: unknown },
+): FormStructure["settings"] {
+  const {
+    require_fingerprint: _removedRequireFingerprint,
+    ...normalizedSettings
+  } = settings;
+  return normalizedSettings;
+}
+
 const transferOwnerSchema = z.object({
   newOwnerUserId: z.string().min(1),
 });
@@ -229,8 +239,9 @@ export const formsDetailRouter = createHonoApp()
             ...(responseLimit ? { response_limit: responseLimit } : {}),
           },
         };
-        delete (updatedStructure.settings as Record<string, unknown>)
-          .require_fingerprint;
+        updatedStructure.settings = omitRemovedResponseSettings(
+          updatedStructure.settings,
+        );
         if (!responseLimit) {
           delete updatedStructure.settings.response_limit;
         }
