@@ -647,11 +647,11 @@ async function markResponseLinkAnalysisRunsStale(
 async function enqueueDeletionResponseLinkAnalysis(
   formId: string,
 ): Promise<void> {
+  await markResponseLinkAnalysisRunsStale(formId);
   await enqueueResponseLinkAnalysisJob({
     formId,
     reason: "response-deleted",
   });
-  await markResponseLinkAnalysisRunsStale(formId);
 }
 
 async function getLiveResponseSuspicionGroupAggregates(

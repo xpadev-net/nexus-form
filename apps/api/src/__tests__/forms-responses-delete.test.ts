@@ -364,7 +364,7 @@ describe("response deletion API", () => {
     });
   });
 
-  it("keeps the previous response link analysis available when deletion requeue fails", async () => {
+  it("marks previous response link analysis stale when deletion requeue fails", async () => {
     mocks.db.select.mockReturnValueOnce(
       selectLimitQuery([{ id: "response-1" }]),
     );
@@ -385,7 +385,7 @@ describe("response deletion API", () => {
       formId: "form-1",
       reason: "response-deleted",
     });
-    expect(mocks.whereConditions).not.toContainEqual(
+    expect(mocks.whereConditions).toContainEqual(
       expect.objectContaining({
         tableName: "responseLinkAnalysisRun",
         values: { status: "STALE" },
