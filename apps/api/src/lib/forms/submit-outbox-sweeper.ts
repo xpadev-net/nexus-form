@@ -339,9 +339,12 @@ export async function sweepSubmitOutbox(
 
   if (!options.responseId) {
     try {
-      const dueFormIds = await findFormsNeedingScheduleProcessing(now);
+      const dueFormIds = await findFormsNeedingScheduleProcessing(
+        now,
+        batchSize,
+      );
       if (dueFormIds.length > 0) {
-        await processMultipleFormSchedules(dueFormIds, now);
+        await processMultipleFormSchedules(dueFormIds, now, batchSize);
       }
     } catch (error) {
       logError(
