@@ -436,10 +436,14 @@ describe("submit outbox sweeper", () => {
     const now = new Date("2026-07-31T15:00:00.000Z");
     await sweepSubmitOutbox({ now });
 
-    expect(mockFindFormsNeedingScheduleProcessing).toHaveBeenCalledWith(now);
+    expect(mockFindFormsNeedingScheduleProcessing).toHaveBeenCalledWith(
+      now,
+      expect.any(Number),
+    );
     expect(mockProcessMultipleFormSchedules).toHaveBeenCalledWith(
       ["form-123"],
       now,
+      expect.any(Number),
     );
   });
 
