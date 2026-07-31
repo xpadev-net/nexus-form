@@ -50,6 +50,13 @@ export type LayoutNode = SimulationNodeDatum & {
   node: GraphNode | null;
   hidden: boolean;
   clusterId?: string;
+  /** Number of responses merged into this node (responses whose answers are
+   * identical apart from `submittedAt`). 1 (or undefined) for an ordinary
+   * single-response node. */
+  memberCount?: number;
+  /** responseIds of every response merged into this node, `node.responseId`
+   * (the representative) included. */
+  memberResponseIds?: string[];
 };
 
 type LayoutLink = SimulationLinkDatum<LayoutNode> & {
@@ -94,6 +101,7 @@ const reasonLabels: Record<string, string> = {
   "support:userAgent": "User-Agent一致",
   "support:respondentUuid": "回答者UUID一致",
   "dense:pair-links-omitted": "高密度クラスタ",
+  "duplicate-content": "送信日時以外が同一の回答",
 };
 
 function reasonLabel(reasonCode: string): string {
@@ -153,14 +161,72 @@ function edgeStrokeClass(strength: string): string {
 function edgeWidth(strength: string): number {
   switch (strength) {
     case "HARD":
-      return 4;
+      return 5;
     case "STRONG":
-      return 3;
+      return 2;
     case "SUPPORT":
-      return 1.5;
+      return 1;
     default:
       return 1;
   }
+}
+
+/** Per-tick link-force strength coefficient (0–1), ordered so HARD pulls the
+ * hardest, STRONG noticeably weaker, and SUPPORT weaker still. */
+function edgeLinkStrength(strength: string): number {
+  switch (strength) {
+    case "HARD":
+      return 0.45;
+    case "STRONG":
+      return 0.18;
+    case "SUPPORT":
+      return 0.12;
+    default:
+      return 0.12;
+  }
+}
+
+function strengthRank(strength: string): number {
+  switch (strength) {
+    case "HARD":
+      return 3;
+    case "STRONG":
+      return 2;
+    case "SUPPORT":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function strongerStrength<T extends string>(a: T, b: T): T {
+  return strengthRank(a) >= strengthRank(b) ? a : b;
+}
+
+/** Narrows a `GraphNode.strongestStrength` (which includes "NONE") down to
+ * the visible-only strength used by `DenseCluster.strength`, treating "NONE"
+ * as the weakest visible tier for display purposes. */
+function toVisibleStrength(
+  strength: GraphNode["strongestStrength"],
+): DenseCluster["strength"] {
+  switch (strength) {
+    case "HARD":
+      return "HARD";
+    case "STRONG":
+      return "STRONG";
+    default:
+      return "SUPPORT";
+  }
+}
+
+/** Orders `edges` by strength then evidence, strongest last (used to pick the
+ * representative edge when several original edges collapse onto the same
+ * merged-node pair). */
+function isStrongerEdge(candidate: GraphEdge, current: GraphEdge): boolean {
+  const rankDiff =
+    strengthRank(candidate.strength) - strengthRank(current.strength);
+  if (rankDiff !== 0) return rankDiff > 0;
+  return candidate.deviceEvidence > current.deviceEvidence;
 }
 
 function edgeKey(edge: GraphEdge): string {
@@ -191,6 +257,16 @@ function nodeFillClass(strength: string, selected: boolean): string {
     default:
       return "fill-muted-foreground";
   }
+}
+
+const nodeMaxRadiusGrowth = 16;
+
+/** Base circle radius for a node representing `memberCount` merged
+ * responses — grows sub-linearly so a handful of extra members is visible
+ * without letting very large groups dominate the layout. */
+function nodeBaseRadius(memberCount: number): number {
+  if (memberCount <= 1) return 9;
+  return 9 + Math.min(nodeMaxRadiusGrowth, Math.sqrt(memberCount - 1) * 4);
 }
 
 function responseShortId(responseId: string): string {
@@ -273,6 +349,142 @@ export function forceMinSeparation(
   return force;
 }
 
+function orientation(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): -1 | 0 | 1 {
+  const value = (by - ay) * (cx - bx) - (bx - ax) * (cy - by);
+  if (Math.abs(value) < 1e-9) return 0;
+  return value > 0 ? 1 : -1;
+}
+
+function onSegment(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+): boolean {
+  return (
+    Math.min(ax, cx) <= bx &&
+    bx <= Math.max(ax, cx) &&
+    Math.min(ay, cy) <= by &&
+    by <= Math.max(ay, cy)
+  );
+}
+
+/** True if segment (x1,y1)-(x2,y2) crosses segment (x3,y3)-(x4,y4), using the
+ * standard orientation-test line-segment intersection algorithm. */
+function segmentsIntersect(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  x3: number,
+  y3: number,
+  x4: number,
+  y4: number,
+): boolean {
+  const o1 = orientation(x1, y1, x2, y2, x3, y3);
+  const o2 = orientation(x1, y1, x2, y2, x4, y4);
+  const o3 = orientation(x3, y3, x4, y4, x1, y1);
+  const o4 = orientation(x3, y3, x4, y4, x2, y2);
+  if (o1 !== o2 && o3 !== o4) return true;
+  if (o1 === 0 && onSegment(x1, y1, x3, y3, x2, y2)) return true;
+  if (o2 === 0 && onSegment(x1, y1, x4, y4, x2, y2)) return true;
+  if (o3 === 0 && onSegment(x3, y3, x1, y1, x4, y4)) return true;
+  if (o4 === 0 && onSegment(x3, y3, x2, y2, x4, y4)) return true;
+  return false;
+}
+
+// Above this many links the O(E²) pairwise crossing check gets too costly to
+// run every tick, so the force is skipped entirely for very dense graphs.
+const edgeCrossingLinkLimit = 260;
+
+/**
+ * A d3-force `Force` that nudges the endpoints of two link segments apart
+ * whenever those segments currently cross, so unrelated edges settle beside
+ * each other instead of visually overlapping. Links sharing an endpoint are
+ * skipped (they legitimately meet at that shared node). Unlike
+ * `forceMinSeparation`, this operates on link endpoints directly rather than
+ * through d3's node-only `Force.initialize`, so it reads `layoutLinks` from
+ * closure — it must be re-created (and re-registered) whenever the link
+ * array changes, and must be registered after the `link` force so
+ * `link.source`/`link.target` have already been resolved to node objects.
+ */
+function forceEdgeCrossingRepulsion(
+  layoutLinks: LayoutLink[],
+  options: { strength: number },
+): Force<LayoutNode, LayoutLink> {
+  function force(alpha: number) {
+    if (layoutLinks.length > edgeCrossingLinkLimit) return;
+    for (let i = 0; i < layoutLinks.length; i++) {
+      const linkA = layoutLinks[i];
+      if (!linkA) continue;
+      const aSource = linkA.source;
+      const aTarget = linkA.target;
+      if (typeof aSource !== "object" || typeof aTarget !== "object") continue;
+      if (typeof aSource.x !== "number" || typeof aSource.y !== "number")
+        continue;
+      if (typeof aTarget.x !== "number" || typeof aTarget.y !== "number")
+        continue;
+      for (let j = i + 1; j < layoutLinks.length; j++) {
+        const linkB = layoutLinks[j];
+        if (!linkB) continue;
+        const bSource = linkB.source;
+        const bTarget = linkB.target;
+        if (typeof bSource !== "object" || typeof bTarget !== "object")
+          continue;
+        if (typeof bSource.x !== "number" || typeof bSource.y !== "number")
+          continue;
+        if (typeof bTarget.x !== "number" || typeof bTarget.y !== "number")
+          continue;
+        if (
+          aSource === bSource ||
+          aSource === bTarget ||
+          aTarget === bSource ||
+          aTarget === bTarget
+        )
+          continue;
+        if (
+          !segmentsIntersect(
+            aSource.x,
+            aSource.y,
+            aTarget.x,
+            aTarget.y,
+            bSource.x,
+            bSource.y,
+            bTarget.x,
+            bTarget.y,
+          )
+        )
+          continue;
+        const dx = aTarget.x - aSource.x;
+        const dy = aTarget.y - aSource.y;
+        const length = Math.hypot(dx, dy) || 1;
+        const nx = -dy / length;
+        const ny = dx / length;
+        const push = options.strength * alpha;
+        aSource.vx = (aSource.vx ?? 0) - nx * push;
+        aSource.vy = (aSource.vy ?? 0) - ny * push;
+        aTarget.vx = (aTarget.vx ?? 0) - nx * push;
+        aTarget.vy = (aTarget.vy ?? 0) - ny * push;
+        bSource.vx = (bSource.vx ?? 0) + nx * push;
+        bSource.vy = (bSource.vy ?? 0) + ny * push;
+        bTarget.vx = (bTarget.vx ?? 0) + nx * push;
+        bTarget.vy = (bTarget.vy ?? 0) + ny * push;
+      }
+    }
+  }
+  force.initialize = () => {};
+  return force;
+}
+
 function readSnapshot(
   layoutNodes: LayoutNode[],
   layoutLinks: LayoutLink[],
@@ -318,49 +530,129 @@ function useForceGraphLayout(
     const nodesById = nodesByIdRef.current;
     const nextIds = new Set<string>();
 
-    const layoutNodes: LayoutNode[] = nodes.map((node, index) => {
-      nextIds.add(node.responseId);
-      const existing = nodesById.get(node.responseId);
-      if (existing) {
-        existing.node = node;
-        existing.hidden = false;
-        existing.clusterId = undefined;
-        return existing;
+    // Responses whose answers are identical apart from `submittedAt` (same
+    // `contentHash`) collapse onto a single visual node, sized by member
+    // count. `responseIdToRepresentative` maps every original responseId
+    // (including the representative itself) to that node's id, so edges and
+    // dense-cluster membership below can be rewired onto the merged nodes.
+    const groupsByContentHash = new Map<string, GraphNode[]>();
+    for (const node of nodes) {
+      const group = groupsByContentHash.get(node.contentHash);
+      if (group) group.push(node);
+      else groupsByContentHash.set(node.contentHash, [node]);
+    }
+    const responseIdToRepresentative = new Map<string, string>();
+    const nodeGroups: { representative: GraphNode; members: GraphNode[] }[] =
+      [];
+    for (const members of groupsByContentHash.values()) {
+      const sortedMembers = [...members].sort((a, b) =>
+        a.responseId.localeCompare(b.responseId),
+      );
+      const representative = sortedMembers[0];
+      if (!representative) continue;
+      for (const member of sortedMembers) {
+        responseIdToRepresentative.set(
+          member.responseId,
+          representative.responseId,
+        );
       }
-      const angle = (index / Math.max(1, nodes.length)) * Math.PI * 2;
-      const created: LayoutNode = {
-        id: node.responseId,
-        node,
-        hidden: false,
-        x: Math.cos(angle) * 120,
-        y: Math.sin(angle) * 120,
-      };
-      nodesById.set(node.responseId, created);
-      return created;
-    });
+      nodeGroups.push({ representative, members: sortedMembers });
+    }
+
+    const layoutNodes: LayoutNode[] = nodeGroups.map(
+      ({ representative, members }, index) => {
+        nextIds.add(representative.responseId);
+        let strongestEvidence = representative.strongestEvidence;
+        let strongestStrength = representative.strongestStrength;
+        for (const member of members) {
+          strongestEvidence = Math.max(
+            strongestEvidence,
+            member.strongestEvidence,
+          );
+          strongestStrength = strongerStrength(
+            strongestStrength,
+            member.strongestStrength,
+          );
+        }
+        const aggregatedNode: GraphNode = {
+          ...representative,
+          strongestEvidence,
+          strongestStrength,
+        };
+        const memberResponseIds = members.map((member) => member.responseId);
+        const existing = nodesById.get(representative.responseId);
+        if (existing) {
+          existing.node = aggregatedNode;
+          existing.hidden = false;
+          existing.clusterId = undefined;
+          existing.memberCount = members.length;
+          existing.memberResponseIds = memberResponseIds;
+          return existing;
+        }
+        const angle = (index / Math.max(1, nodeGroups.length)) * Math.PI * 2;
+        const created: LayoutNode = {
+          id: representative.responseId,
+          node: aggregatedNode,
+          hidden: false,
+          memberCount: members.length,
+          memberResponseIds,
+          x: Math.cos(angle) * 120,
+          y: Math.sin(angle) * 120,
+        };
+        nodesById.set(representative.responseId, created);
+        return created;
+      },
+    );
 
     const linkedNeighbors: LinkedNeighbors = new Map();
-    const layoutLinks: LayoutLink[] = edges
-      .filter(
-        (edge) =>
-          nextIds.has(edge.responseIdA) && nextIds.has(edge.responseIdB),
-      )
-      .map((edge) => {
-        addLinkedPair(linkedNeighbors, edge.responseIdA, edge.responseIdB);
+    // Multiple original edges can land on the same pair of merged nodes;
+    // keep only the strongest one per pair so the merge actually reduces
+    // clutter instead of stacking duplicate lines.
+    const dedupedEdgesByPair = new Map<
+      string,
+      { edge: GraphEdge; sourceId: string; targetId: string }
+    >();
+    for (const edge of edges) {
+      const sourceId = responseIdToRepresentative.get(edge.responseIdA);
+      const targetId = responseIdToRepresentative.get(edge.responseIdB);
+      if (!sourceId || !targetId) continue;
+      if (!nextIds.has(sourceId) || !nextIds.has(targetId)) continue;
+      // Both endpoints merged into the same node — nothing to draw.
+      if (sourceId === targetId) continue;
+      const pairKey =
+        sourceId < targetId
+          ? `${sourceId} ${targetId}`
+          : `${targetId} ${sourceId}`;
+      const existingEdge = dedupedEdgesByPair.get(pairKey);
+      if (!existingEdge || isStrongerEdge(edge, existingEdge.edge)) {
+        dedupedEdgesByPair.set(pairKey, { edge, sourceId, targetId });
+      }
+    }
+    const layoutLinks: LayoutLink[] = [...dedupedEdgesByPair.values()].map(
+      ({ edge, sourceId, targetId }) => {
+        addLinkedPair(linkedNeighbors, sourceId, targetId);
         return {
-          source: edge.responseIdA,
-          target: edge.responseIdB,
-          sourceId: edge.responseIdA,
-          targetId: edge.responseIdB,
+          source: sourceId,
+          target: targetId,
+          sourceId,
+          targetId,
           edge,
           cluster: null,
         };
-      });
+      },
+    );
 
     for (const cluster of denseClusters) {
-      const memberIds = cluster.responseIds.filter((responseId) =>
-        nextIds.has(responseId),
-      );
+      const memberIds = [
+        ...new Set(
+          cluster.responseIds
+            .map((responseId) => responseIdToRepresentative.get(responseId))
+            .filter(
+              (responseId): responseId is string =>
+                !!responseId && nextIds.has(responseId),
+            ),
+        ),
+      ];
       if (memberIds.length < 2) continue;
       const hubId = `cluster:${cluster.id}`;
       nextIds.add(hubId);
@@ -422,7 +714,11 @@ function useForceGraphLayout(
         forceLink<LayoutNode, LayoutLink>(layoutLinks)
           .id((node) => node.id)
           .distance((link) => (link.cluster ? 44 : 96))
-          .strength((link) => (link.cluster ? 0.7 : 0.35)),
+          .strength((link) =>
+            link.cluster
+              ? 0.7
+              : edgeLinkStrength(link.edge?.strength ?? "NONE"),
+          ),
       )
       .force(
         "charge",
@@ -430,13 +726,22 @@ function useForceGraphLayout(
       )
       .force("x", forceX<LayoutNode>(0).strength(0.02))
       .force("y", forceY<LayoutNode>(0).strength(0.02))
-      .force("collide", forceCollide<LayoutNode>().radius(24))
+      .force(
+        "collide",
+        forceCollide<LayoutNode>().radius(
+          (node) => nodeBaseRadius(node.memberCount ?? 1) + 15,
+        ),
+      )
       .force(
         "minSeparation",
         forceMinSeparation(linkedNeighbors, {
           minDistance: nonRelationMinDistance,
           strength: nonRelationStrength,
         }),
+      )
+      .force(
+        "edgeCrossing",
+        forceEdgeCrossingRepulsion(layoutLinks, { strength: 1.5 }),
       )
       .alphaDecay(0.02)
       .alpha(Math.max(simulation.alpha(), 0.5))
@@ -520,7 +825,13 @@ function EdgeEvidence({ edge }: { edge: GraphEdge }) {
 
 type TooltipState =
   | { kind: "edge"; edge: GraphEdge; x: number; y: number }
-  | { kind: "node"; node: GraphNode; x: number; y: number };
+  | {
+      kind: "node";
+      node: GraphNode;
+      memberCount: number;
+      x: number;
+      y: number;
+    };
 
 function CursorTooltip({ tooltip }: { tooltip: TooltipState }) {
   const offset = 14;
@@ -555,6 +866,9 @@ function CursorTooltip({ tooltip }: { tooltip: TooltipState }) {
           </p>
           <p>強度: {strengthLabel(tooltip.node.strongestStrength)}</p>
           <p>送信: {formatJapanLocaleDateTime(tooltip.node.submittedAt)}</p>
+          {tooltip.memberCount > 1 && (
+            <p>同一内容の回答: {tooltip.memberCount}件</p>
+          )}
         </div>
       )}
     </div>
@@ -568,6 +882,11 @@ type ResponseRelationGraphCanvasProps = {
   openResponseIds: Set<string>;
   onSelectEdge: (edge: GraphEdge) => void;
   onSelectResponse: (responseId: string) => void;
+  /** Called (in addition to `onSelectResponse`) when a merged node
+   * representing more than one response is activated, so the sidebar can
+   * surface the other same-content responses that would otherwise be
+   * unreachable from the graph. */
+  onSelectGroup: (group: DenseCluster) => void;
 };
 
 type PanSession = {
@@ -600,6 +919,7 @@ export function ResponseRelationGraphCanvas({
   openResponseIds,
   onSelectEdge,
   onSelectResponse,
+  onSelectGroup,
 }: ResponseRelationGraphCanvasProps) {
   const {
     nodes: layoutNodes,
@@ -756,6 +1076,29 @@ export function ResponseRelationGraphCanvas({
     }
   };
 
+  // Shared by both click/tap and keyboard activation: opens the response
+  // window and, for a node merged from more than one identical-content
+  // response, also surfaces the other members in the sidebar (via
+  // `onSelectGroup`) since they have no node of their own to click.
+  const activateNode = (id: string): void => {
+    onSelectResponse(id);
+    const activatedNode = layoutNodes.find((node) => node.id === id);
+    if (
+      activatedNode?.memberResponseIds &&
+      activatedNode.memberResponseIds.length > 1 &&
+      activatedNode.node
+    ) {
+      const memberCount = activatedNode.memberResponseIds.length;
+      onSelectGroup({
+        id: `content-group:${id}`,
+        responseIds: activatedNode.memberResponseIds,
+        strength: toVisibleStrength(activatedNode.node.strongestStrength),
+        reasonCode: "duplicate-content",
+        pairCount: (memberCount * (memberCount - 1)) / 2,
+      });
+    }
+  };
+
   const endNodeDrag = (
     event: ReactPointerEvent<HTMLAnchorElement>,
     id: string,
@@ -770,7 +1113,7 @@ export function ResponseRelationGraphCanvas({
     } else if (!wasCancelled) {
       // A pointercancel (e.g. browser-initiated gesture interruption) is not
       // a completed click, so it must not open a response window.
-      onSelectResponse(id);
+      activateNode(id);
     }
     setNodeDrag(null);
   };
@@ -786,7 +1129,7 @@ export function ResponseRelationGraphCanvas({
         role="img"
         aria-label="回答の関係グラフ"
         className={[
-          "h-[560px] w-full touch-none select-none",
+          "h-[calc(100vh-260px)] min-h-[480px] w-full touch-none select-none",
           panSession ? "cursor-grabbing" : "cursor-grab",
         ].join(" ")}
         onWheel={handleWheel}
@@ -881,7 +1224,7 @@ export function ResponseRelationGraphCanvas({
                     y2={target.y}
                     className="cursor-pointer stroke-transparent"
                     pointerEvents="stroke"
-                    strokeWidth={18}
+                    strokeWidth={8}
                   />
                 </a>
               </g>
@@ -891,11 +1234,17 @@ export function ResponseRelationGraphCanvas({
             const node = layoutNode.node;
             if (!node) return null;
             const isOpen = openResponseIds.has(node.responseId);
+            const memberCount = layoutNode.memberCount ?? 1;
+            const radius = nodeBaseRadius(memberCount) + (isOpen ? 3 : 0);
+            const label =
+              memberCount > 1
+                ? `回答 ${responseShortId(node.responseId)} を表示 (同一内容の回答 計${memberCount}件)`
+                : `回答 ${responseShortId(node.responseId)} を表示`;
             return (
               <a
                 key={node.responseId}
                 href={`#response-${node.responseId}`}
-                aria-label={`回答 ${responseShortId(node.responseId)} を表示`}
+                aria-label={label}
                 onPointerDown={(event) => startNodeDrag(event, node.responseId)}
                 onPointerMove={moveNodeDrag}
                 onPointerUp={(event) =>
@@ -910,7 +1259,7 @@ export function ResponseRelationGraphCanvas({
                   // (which would add a history entry) for both activation
                   // keys, matching the edge links' onClick behavior.
                   event.preventDefault();
-                  onSelectResponse(node.responseId);
+                  activateNode(node.responseId);
                 }}
                 onFocus={() => {
                   const nextCamera = cameraKeepingPointVisible(
@@ -923,13 +1272,20 @@ export function ResponseRelationGraphCanvas({
                     layoutNode.y,
                     nextCamera,
                   );
-                  setTooltip({ kind: "node", node, x: screen.x, y: screen.y });
+                  setTooltip({
+                    kind: "node",
+                    node,
+                    memberCount,
+                    x: screen.x,
+                    y: screen.y,
+                  });
                 }}
                 onBlur={() => setTooltip(null)}
                 onMouseEnter={(event) =>
                   setTooltip({
                     kind: "node",
                     node,
+                    memberCount,
                     x: event.clientX,
                     y: event.clientY,
                   })
@@ -938,6 +1294,7 @@ export function ResponseRelationGraphCanvas({
                   setTooltip({
                     kind: "node",
                     node,
+                    memberCount,
                     x: event.clientX,
                     y: event.clientY,
                   })
@@ -947,7 +1304,7 @@ export function ResponseRelationGraphCanvas({
                 <circle
                   cx={layoutNode.x}
                   cy={layoutNode.y}
-                  r={isOpen ? 12 : 9}
+                  r={radius}
                   className={[
                     nodeFillClass(node.strongestStrength, isOpen),
                     "cursor-pointer stroke-background stroke-2",
@@ -955,11 +1312,12 @@ export function ResponseRelationGraphCanvas({
                 />
                 <text
                   x={layoutNode.x}
-                  y={layoutNode.y + 23}
+                  y={layoutNode.y + radius + 14}
                   textAnchor="middle"
                   className="pointer-events-none fill-muted-foreground text-[10px]"
                 >
                   {responseShortId(node.responseId)}
+                  {memberCount > 1 ? ` ×${memberCount}` : ""}
                 </text>
               </a>
             );
@@ -984,9 +1342,11 @@ function ResponseRelationGraphSidebar({
   onSelectCluster,
   onSelectResponse,
 }: ResponseRelationGraphSidebarProps) {
+  if (graph.denseClusters.length === 0 && !selectedCluster) return null;
+
   return (
     <aside className="space-y-4">
-      {graph.denseClusters.length > 0 ? (
+      {graph.denseClusters.length > 0 && (
         <div className="rounded-md border p-3">
           <h3 className="text-sm font-semibold">クラスタ</h3>
           <div className="mt-2 space-y-2">
@@ -1012,10 +1372,6 @@ function ResponseRelationGraphSidebar({
               </button>
             ))}
           </div>
-        </div>
-      ) : (
-        <div className="rounded-md border p-3 text-sm text-muted-foreground">
-          ノードやリンクにマウスを重ねると詳細が表示されます。
         </div>
       )}
 
@@ -1085,44 +1441,128 @@ function useFloatingWindowDrag(
   return { onHeaderPointerDown, onHeaderPointerMove, onHeaderPointerUp };
 }
 
+type WindowSize = { width: number; height: number };
+
+const windowMinWidth = 280;
+const windowMinHeight = 200;
+
+/**
+ * Tracks a pointer drag on the window's bottom-right resize handle, growing
+ * or shrinking `size` from its value at drag-start. The resulting size is
+ * clamped to `windowMinWidth`/`windowMinHeight` and — since the window's
+ * top-left `position` does not move while resizing — to whatever the
+ * viewport can still show measured from that fixed position, so a window
+ * can never be resized into a size its own position can't fit on screen
+ * (which would otherwise strand its resize handle, and for height its whole
+ * body, off-screen with no way to shrink it back).
+ */
+function useFloatingWindowResize(
+  position: { x: number; y: number },
+  size: WindowSize,
+  onResize: (size: WindowSize) => void,
+) {
+  const resizeRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
+
+  const onResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startWidth: size.width,
+      startHeight: size.height,
+    };
+  };
+
+  const onResizePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resize = resizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    const { width: viewportWidth, height: viewportHeight } = viewportSize();
+    const maxWidth = viewportWidth - position.x - windowViewportMargin;
+    const maxHeight = viewportHeight - position.y - windowViewportMargin;
+    onResize({
+      width: clamp(
+        resize.startWidth + (event.clientX - resize.startClientX),
+        windowMinWidth,
+        Math.max(windowMinWidth, maxWidth),
+      ),
+      height: clamp(
+        resize.startHeight + (event.clientY - resize.startClientY),
+        windowMinHeight,
+        Math.max(windowMinHeight, maxHeight),
+      ),
+    });
+  };
+
+  const onResizePointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const resize = resizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    resizeRef.current = null;
+  };
+
+  return { onResizePointerDown, onResizePointerMove, onResizePointerUp };
+}
+
 type FloatingWindowProps = {
   title: string;
   closeLabel: string;
-  width: number;
+  resizeLabel: string;
+  size: WindowSize;
   position: { x: number; y: number };
   zIndex: number;
   isFront: boolean;
   onClose: () => void;
   onFocus: () => void;
   onMove: (position: { x: number; y: number }) => void;
+  onResize: (size: WindowSize) => void;
   children: ReactNode;
 };
 
-/** Shared draggable, closable floating window shell used by both the
- * response-detail and edge-evidence popups. */
+/** Shared draggable, closable, resizable floating window shell used by both
+ * the response-detail and edge-evidence popups. */
 function FloatingWindow({
   title,
   closeLabel,
-  width,
+  resizeLabel,
+  size,
   position,
   zIndex,
   isFront,
   onClose,
   onFocus,
   onMove,
+  onResize,
   children,
 }: FloatingWindowProps) {
   const drag = useFloatingWindowDrag(position, onMove);
+  const resize = useFloatingWindowResize(position, size, onResize);
 
   return (
     <div
-      className="fixed max-w-[calc(100vw-2rem)] rounded-lg border bg-card shadow-xl"
-      style={{ left: position.x, top: position.y, width, zIndex }}
+      className="fixed flex max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] flex-col rounded-lg border bg-card shadow-xl"
+      style={{
+        left: position.x,
+        top: position.y,
+        width: size.width,
+        height: size.height,
+        zIndex,
+      }}
       onPointerDownCapture={onFocus}
     >
       <div
         className={[
-          "flex cursor-grab items-center justify-between rounded-t-lg border-b px-3 py-2 active:cursor-grabbing",
+          "flex shrink-0 cursor-grab items-center justify-between rounded-t-lg border-b px-3 py-2 active:cursor-grabbing",
           isFront ? "bg-muted" : "bg-muted/50",
         ].join(" ")}
         onPointerDown={drag.onHeaderPointerDown}
@@ -1140,11 +1580,30 @@ function FloatingWindow({
           className="h-6 w-6 p-0"
           aria-label={closeLabel}
           onClick={onClose}
+          onPointerDown={(event) => {
+            // Without this, the pointerdown bubbles to the header's drag
+            // handler, which calls setPointerCapture on the header — that
+            // retargets the resulting click away from this button, so the
+            // window could never actually be closed.
+            event.stopPropagation();
+          }}
         >
           <X className="h-3.5 w-3.5" />
         </Button>
       </div>
-      <div className="max-h-[70vh] space-y-3 overflow-auto p-3">{children}</div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
+        {children}
+      </div>
+      <button
+        type="button"
+        aria-label={resizeLabel}
+        tabIndex={-1}
+        className="absolute bottom-0 right-0 h-4 w-4 touch-none cursor-nwse-resize bg-transparent p-0 after:absolute after:bottom-0.5 after:right-0.5 after:h-2 after:w-2 after:border-b-2 after:border-r-2 after:border-muted-foreground/50 after:content-['']"
+        onPointerDown={resize.onResizePointerDown}
+        onPointerMove={resize.onResizePointerMove}
+        onPointerUp={resize.onResizePointerUp}
+        onPointerCancel={resize.onResizePointerUp}
+      />
     </div>
   );
 }
@@ -1152,35 +1611,41 @@ function FloatingWindow({
 type FloatingResponseWindowProps = {
   formId: string;
   responseId: string;
+  size: WindowSize;
   position: { x: number; y: number };
   zIndex: number;
   isFront: boolean;
   onClose: () => void;
   onFocus: () => void;
   onMove: (position: { x: number; y: number }) => void;
+  onResize: (size: WindowSize) => void;
 };
 
 function FloatingResponseWindow({
   formId,
   responseId,
+  size,
   position,
   zIndex,
   isFront,
   onClose,
   onFocus,
   onMove,
+  onResize,
 }: FloatingResponseWindowProps) {
   return (
     <FloatingWindow
       title={`回答 ${responseShortId(responseId)}`}
       closeLabel="回答ウィンドウを閉じる"
-      width={responseWindowWidth}
+      resizeLabel="回答ウィンドウのサイズを変更"
+      size={size}
       position={position}
       zIndex={zIndex}
       isFront={isFront}
       onClose={onClose}
       onFocus={onFocus}
       onMove={onMove}
+      onResize={onResize}
     >
       <ResponseDetailView formId={formId} responseId={responseId} />
     </FloatingWindow>
@@ -1189,36 +1654,42 @@ function FloatingResponseWindow({
 
 type FloatingEdgeWindowProps = {
   edge: GraphEdge;
+  size: WindowSize;
   position: { x: number; y: number };
   zIndex: number;
   isFront: boolean;
   onClose: () => void;
   onFocus: () => void;
   onMove: (position: { x: number; y: number }) => void;
+  onResize: (size: WindowSize) => void;
   onSelectResponse: (responseId: string) => void;
 };
 
 function FloatingEdgeWindow({
   edge,
+  size,
   position,
   zIndex,
   isFront,
   onClose,
   onFocus,
   onMove,
+  onResize,
   onSelectResponse,
 }: FloatingEdgeWindowProps) {
   return (
     <FloatingWindow
       title={`リンク根拠 ${responseShortId(edge.responseIdA)} / ${responseShortId(edge.responseIdB)}`}
       closeLabel="リンク根拠ウィンドウを閉じる"
-      width={edgeWindowWidth}
+      resizeLabel="リンク根拠ウィンドウのサイズを変更"
+      size={size}
       position={position}
       zIndex={zIndex}
       isFront={isFront}
       onClose={onClose}
       onFocus={onFocus}
       onMove={onMove}
+      onResize={onResize}
     >
       <EdgeEvidence edge={edge} />
       <div className="flex gap-2">
@@ -1246,6 +1717,7 @@ function FloatingEdgeWindow({
 type OpenResponseWindow = {
   responseId: string;
   position: { x: number; y: number };
+  size: WindowSize;
   zIndex: number;
 };
 
@@ -1253,13 +1725,14 @@ type OpenEdgeWindow = {
   key: string;
   edge: GraphEdge;
   position: { x: number; y: number };
+  size: WindowSize;
   zIndex: number;
 };
 
 const windowCascadeStep = 32;
 const windowInitialPosition = { x: 80, y: 96 };
-const responseWindowWidth = 420;
-const edgeWindowWidth = 360;
+const defaultResponseWindowSize: WindowSize = { width: 420, height: 480 };
+const defaultEdgeWindowSize: WindowSize = { width: 360, height: 420 };
 // Matches the `max-w-[calc(100vw-2rem)]` on FloatingWindow: on a narrow
 // viewport the window itself shrinks to fit within this margin.
 const windowViewportMargin = 32;
@@ -1346,13 +1819,13 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
       setOpenWindows((current) =>
         current.map((win) => ({
           ...win,
-          position: clampWindowPosition(win.position, responseWindowWidth),
+          position: clampWindowPosition(win.position, win.size.width),
         })),
       );
       setOpenEdgeWindows((current) =>
         current.map((win) => ({
           ...win,
-          position: clampWindowPosition(win.position, edgeWindowWidth),
+          position: clampWindowPosition(win.position, win.size.width),
         })),
       );
     };
@@ -1371,13 +1844,14 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
       }
       const position = cascadeWindowPosition(
         current.length + openEdgeWindows.length,
-        responseWindowWidth,
+        defaultResponseWindowSize.width,
       );
       return [
         ...current,
         {
           responseId,
           position,
+          size: defaultResponseWindowSize,
           zIndex: nextZ,
         },
       ];
@@ -1408,9 +1882,17 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
         win.responseId === responseId
           ? {
               ...win,
-              position: clampWindowPosition(position, responseWindowWidth),
+              position: clampWindowPosition(position, win.size.width),
             }
           : win,
+      ),
+    );
+  };
+
+  const resizeResponseWindow = (responseId: string, size: WindowSize) => {
+    setOpenWindows((current) =>
+      current.map((win) =>
+        win.responseId === responseId ? { ...win, size } : win,
       ),
     );
   };
@@ -1427,7 +1909,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
       }
       const position = cascadeWindowPosition(
         current.length + openWindows.length,
-        edgeWindowWidth,
+        defaultEdgeWindowSize.width,
       );
       return [
         ...current,
@@ -1435,6 +1917,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           key,
           edge,
           position,
+          size: defaultEdgeWindowSize,
           zIndex: nextZ,
         },
       ];
@@ -1456,9 +1939,15 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
     setOpenEdgeWindows((current) =>
       current.map((win) =>
         win.key === key
-          ? { ...win, position: clampWindowPosition(position, edgeWindowWidth) }
+          ? { ...win, position: clampWindowPosition(position, win.size.width) }
           : win,
       ),
+    );
+  };
+
+  const resizeEdgeWindow = (key: string, size: WindowSize) => {
+    setOpenEdgeWindows((current) =>
+      current.map((win) => (win.key === key ? { ...win, size } : win)),
     );
   };
 
@@ -1539,7 +2028,14 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div
+        className={[
+          "grid gap-4",
+          graph.denseClusters.length > 0 || selectedCluster
+            ? "xl:grid-cols-[minmax(0,1fr)_280px]"
+            : "",
+        ].join(" ")}
+      >
         <ResponseRelationGraphCanvas
           nodes={graph.nodes}
           edges={graph.edges}
@@ -1547,6 +2043,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           openResponseIds={openResponseIds}
           onSelectEdge={openEdgeWindow}
           onSelectResponse={openResponseWindow}
+          onSelectGroup={setSelectedCluster}
         />
         <ResponseRelationGraphSidebar
           graph={graph}
@@ -1561,12 +2058,14 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           key={win.responseId}
           formId={formId}
           responseId={win.responseId}
+          size={win.size}
           position={win.position}
           zIndex={win.zIndex}
           isFront={win.zIndex === frontZIndex}
           onClose={() => closeResponseWindow(win.responseId)}
           onFocus={() => focusResponseWindow(win.responseId)}
           onMove={(position) => moveResponseWindow(win.responseId, position)}
+          onResize={(size) => resizeResponseWindow(win.responseId, size)}
         />
       ))}
 
@@ -1574,12 +2073,14 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
         <FloatingEdgeWindow
           key={win.key}
           edge={win.edge}
+          size={win.size}
           position={win.position}
           zIndex={win.zIndex}
           isFront={win.zIndex === frontZIndex}
           onClose={() => closeEdgeWindow(win.key)}
           onFocus={() => focusEdgeWindow(win.key)}
           onMove={(position) => moveEdgeWindow(win.key, position)}
+          onResize={(size) => resizeEdgeWindow(win.key, size)}
           onSelectResponse={openResponseWindow}
         />
       ))}

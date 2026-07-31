@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import {
@@ -2868,6 +2868,7 @@ export const formsResponsesRouter = createHonoApp()
               id: formResponse.id,
               submittedAt: formResponse.submittedAt,
               respondentUuid: formResponse.respondentUuid,
+              responseDataJson: formResponse.responseDataJson,
             })
             .from(formResponse)
             .where(inArray(formResponse.id, visibleResponseIds))
@@ -2953,6 +2954,9 @@ export const formsResponsesRouter = createHonoApp()
               respondentUuid: response.respondentUuid,
               strongestStrength: strongest.strongestStrength,
               strongestEvidence: strongest.strongestEvidence,
+              contentHash: createHash("sha256")
+                .update(response.responseDataJson ?? "")
+                .digest("hex"),
             },
           ];
         }),

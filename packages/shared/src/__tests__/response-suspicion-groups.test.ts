@@ -67,6 +67,7 @@ describe("response-suspicion-groups contract", () => {
             respondentUuid: "respondent-a",
             strongestStrength: "STRONG",
             strongestEvidence: 1.25,
+            contentHash: "content-hash-a",
           },
         ],
         edges: [
