@@ -29,8 +29,6 @@ import {
   validateCompletionTargetsForApi,
 } from "../lib/forms/completion-target-validation";
 import { getFormStructure } from "../lib/forms/form-structure-service";
-import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
-import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
@@ -174,12 +172,6 @@ async function getCurrentOrDefaultStructure(
 export const formsDetailRouter = createHonoApp()
   .get("/:id", withDualFormAuth("VIEWER"), async (c) => {
     const id = c.req.param("id");
-    await processFormSchedule(id).catch((error) =>
-      logFormScheduleError(error, {
-        formId: id,
-        operation: "GET /forms/:id",
-      }),
-    );
     const [target] = await db
       .select()
       .from(form)

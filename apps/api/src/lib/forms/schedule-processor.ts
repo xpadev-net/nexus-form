@@ -60,11 +60,28 @@ export async function processFormSchedule(
         })
         .from(form)
         .where(eq(form.id, formId))
-        .for("update")
+        .for("update", { skipLocked: true })
         .limit(1);
 
       if (!foundForm) {
-        throw new Error("Form not found");
+        const [existing] = await tx
+          .select({ status: form.status })
+          .from(form)
+          .where(eq(form.id, formId))
+          .limit(1);
+
+        if (!existing) {
+          throw new Error("Form not found");
+        }
+
+        return {
+          snapshotSchedules,
+          processed: false,
+          statusChanged: false,
+          newStatus: existing.status,
+          message:
+            "Form is locked by another transaction; skipped schedule processing",
+        };
       }
 
       // 未処理のスケジュールを取得（トリガー時刻が現在時刻以前のもの）
@@ -250,31 +267,33 @@ export async function processFormSchedule(
 }
 
 /**
- * 複数のフォームのスケジュール処理を一括実行（並列処理）
+ * 複数のフォームのスケジュール処理を一括実行（チャンク並列処理）
  */
 export async function processMultipleFormSchedules(
   formIds: string[],
   currentTime: Date = new Date(),
+  batchSize = 10,
 ): Promise<Record<string, ScheduleProcessResult>> {
   const results: Record<string, ScheduleProcessResult> = {};
+  const effectiveBatchSize = Math.max(1, batchSize);
 
-  // 並列処理で全フォームのスケジュールを処理
-  const promises = formIds.map(async (id) => ({
-    formId: id,
-    result: await processFormSchedule(id, currentTime),
-  }));
+  for (let i = 0; i < formIds.length; i += effectiveBatchSize) {
+    const batch = formIds.slice(i, i + effectiveBatchSize);
+    const promises = batch.map(async (id) => ({
+      formId: id,
+      result: await processFormSchedule(id, currentTime),
+    }));
 
-  const settled = await Promise.allSettled(promises);
+    const settled = await Promise.allSettled(promises);
 
-  // 結果を集約
-  for (const promise of settled) {
-    if (promise.status === "fulfilled") {
-      const { formId: id, result } = promise.value;
-      results[id] = result;
-    } else {
-      const index = settled.indexOf(promise);
-      const id = formIds[index];
-      if (id) {
+    for (let j = 0; j < settled.length; j++) {
+      const promise = settled[j];
+      const id = batch[j];
+      if (!id || !promise) continue;
+
+      if (promise.status === "fulfilled") {
+        results[id] = promise.value.result;
+      } else {
         results[id] = {
           processed: false,
           statusChanged: false,
@@ -293,9 +312,10 @@ export async function processMultipleFormSchedules(
  */
 export async function findFormsNeedingScheduleProcessing(
   currentTime: Date = new Date(),
+  limit?: number,
 ): Promise<string[]> {
   // トリガー時刻が現在時刻以前で未処理のスケジュールを持つフォームを検索
-  const schedules = await db
+  const baseQuery = db
     .selectDistinct({ formId: formSchedule.formId })
     .from(formSchedule)
     .where(
@@ -304,6 +324,9 @@ export async function findFormsNeedingScheduleProcessing(
         lte(formSchedule.triggerAt, currentTime),
       ),
     );
+
+  const schedules =
+    limit && limit > 0 ? await baseQuery.limit(limit) : await baseQuery;
 
   return schedules.map((schedule) => schedule.formId);
 }
