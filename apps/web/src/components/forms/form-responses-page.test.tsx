@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -248,7 +248,7 @@ vi.mock("@/components/forms/response-filter", () => ({
   },
 }));
 vi.mock("@/components/forms/response-relation-graph", () => ({
-  ResponseRelationGraph: ({ formId }: { formId: string }) => (
+  ResponseRelationGraph: ({ formId }: { formId: string }): ReactElement => (
     <section data-testid="response-relation-graph">{formId}</section>
   ),
 }));

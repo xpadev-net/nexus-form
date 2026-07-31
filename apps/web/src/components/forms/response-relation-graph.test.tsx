@@ -6,9 +6,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  addLinkedPair,
   forceMinSeparation,
   type LayoutNode,
-  pairKey,
+  type LinkedNeighbors,
   ResponseRelationGraph,
   ResponseRelationGraphCanvas,
 } from "./response-relation-graph";
@@ -102,6 +103,25 @@ function graphEdge(responseIdA: string, responseIdB: string): GraphEdge {
   };
 }
 
+function twoNodeEdgeFixture(): {
+  nodes: GraphNode[];
+  nodeA: GraphNode;
+  nodeB: GraphNode;
+  edge: GraphEdge;
+} {
+  const nodes = [graphNode(0), graphNode(1)];
+  const [nodeA, nodeB] = nodes;
+  if (!nodeA || !nodeB) {
+    throw new Error("Expected graph node fixtures to be present");
+  }
+  return {
+    nodes,
+    nodeA,
+    nodeB,
+    edge: graphEdge(nodeA.responseId, nodeB.responseId),
+  };
+}
+
 function renderCanvas(nodes: GraphNode[], edges: GraphEdge[]) {
   container = document.createElement("div");
   document.body.append(container);
@@ -184,8 +204,9 @@ function parseTransform(element: SVGGElement): {
   k: number;
 } {
   const raw = element.getAttribute("transform") ?? "";
+  const number = "[-\\d.]+(?:[eE][-+]?\\d+)?";
   const match = raw.match(
-    /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/,
+    new RegExp(`translate\\((${number}) (${number})\\) scale\\((${number})\\)`),
   );
   if (!match) {
     throw new Error(`Unexpected transform value: ${raw}`);
@@ -196,12 +217,7 @@ function parseTransform(element: SVGGElement): {
 
 describe("ResponseRelationGraphCanvas", () => {
   it("pans the canvas only when dragging the background", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [sourceNode, targetNode] = nodes;
-    if (!sourceNode || !targetNode) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { nodes, edge } = twoNodeEdgeFixture();
     const { container, svg } = renderCanvas(nodes, [edge]);
     const background = getRequiredElement(
       container,
@@ -241,12 +257,7 @@ describe("ResponseRelationGraphCanvas", () => {
   });
 
   it("zooms toward the pointer position on wheel", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [sourceNode, targetNode] = nodes;
-    if (!sourceNode || !targetNode) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { nodes, edge } = twoNodeEdgeFixture();
     const { container, svg } = renderCanvas(nodes, [edge]);
     const group = getRequiredElement(
       container,
@@ -264,12 +275,7 @@ describe("ResponseRelationGraphCanvas", () => {
   });
 
   it("opens the response window on a plain node click, not on drag", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [sourceNode, targetNode] = nodes;
-    if (!sourceNode || !targetNode) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { nodes, nodeA: sourceNode, edge } = twoNodeEdgeFixture();
     const { container, onSelectResponse } = renderCanvas(nodes, [edge]);
     const nodeAnchor = getRequiredElement(
       container,
@@ -317,12 +323,7 @@ describe("ResponseRelationGraphCanvas", () => {
   });
 
   it("selects an edge when its hit area is clicked", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [sourceNode, targetNode] = nodes;
-    if (!sourceNode || !targetNode) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { nodes, edge } = twoNodeEdgeFixture();
     const { container, onSelectEdge } = renderCanvas(nodes, [edge]);
     const edgeHitArea = getRequiredElement(
       container,
@@ -339,12 +340,7 @@ describe("ResponseRelationGraphCanvas", () => {
   });
 
   it("supports keyboard panning", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [sourceNode, targetNode] = nodes;
-    if (!sourceNode || !targetNode) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { nodes, edge } = twoNodeEdgeFixture();
     const { container } = renderCanvas(nodes, [edge]);
     const group = getRequiredElement(
       container,
@@ -365,12 +361,7 @@ describe("ResponseRelationGraphCanvas", () => {
   });
 
   it("shows a tooltip and pans an off-screen node into view on keyboard focus", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [sourceNode, targetNode] = nodes;
-    if (!sourceNode || !targetNode) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { nodes, nodeA: sourceNode, edge } = twoNodeEdgeFixture();
     const { container, svg } = renderCanvas(nodes, [edge]);
     const group = getRequiredElement(
       container,
@@ -413,13 +404,13 @@ describe("ResponseRelationGraphCanvas", () => {
     const pannedAwayTransform = parseTransform(group);
     expect(pannedAwayTransform).toEqual({ x: -5000, y: -5000, k: 1 });
 
-    expect(container.querySelector(".fixed.z-50")).toBeNull();
+    expect(container.querySelector("[role='tooltip']")).toBeNull();
 
     act(() => {
       fireEvent.focusIn(nodeAnchor);
     });
 
-    expect(container.querySelector(".fixed.z-50")).not.toBeNull();
+    expect(container.querySelector("[role='tooltip']")).not.toBeNull();
     expect(container.textContent).toContain(
       responseShortIdForTest(sourceNode.responseId),
     );
@@ -430,7 +421,7 @@ describe("ResponseRelationGraphCanvas", () => {
       fireEvent.focusOut(nodeAnchor);
     });
 
-    expect(container.querySelector(".fixed.z-50")).toBeNull();
+    expect(container.querySelector("[role='tooltip']")).toBeNull();
   });
 });
 
@@ -446,7 +437,7 @@ describe("forceMinSeparation", () => {
   it("pushes apart unlinked nodes that are closer than the minimum distance", () => {
     const a = layoutNode("a", 0, 0);
     const b = layoutNode("b", 10, 0);
-    const force = forceMinSeparation(new Set(), {
+    const force = forceMinSeparation(new Map(), {
       minDistance: 90,
       strength: 0.6,
     });
@@ -460,7 +451,7 @@ describe("forceMinSeparation", () => {
   it("does not push apart nodes once they clear the minimum distance", () => {
     const a = layoutNode("a", 0, 0);
     const b = layoutNode("b", 200, 0);
-    const force = forceMinSeparation(new Set(), {
+    const force = forceMinSeparation(new Map(), {
       minDistance: 90,
       strength: 0.6,
     });
@@ -474,7 +465,9 @@ describe("forceMinSeparation", () => {
   it("does not push apart pairs that are exempted as linked (e.g. same dense cluster)", () => {
     const a = layoutNode("a", 0, 0);
     const b = layoutNode("b", 10, 0);
-    const force = forceMinSeparation(new Set([pairKey("a", "b")]), {
+    const linkedNeighbors: LinkedNeighbors = new Map();
+    addLinkedPair(linkedNeighbors, "a", "b");
+    const force = forceMinSeparation(linkedNeighbors, {
       minDistance: 90,
       strength: 0.6,
     });
@@ -530,12 +523,7 @@ describe("ResponseRelationGraph", () => {
   });
 
   it("opens multiple floating response windows and closes them independently", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [nodeA, nodeB] = nodes;
-    if (!nodeA || !nodeB) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(nodeA.responseId, nodeB.responseId);
+    const { nodes, nodeA, nodeB, edge } = twoNodeEdgeFixture();
     const { graphContainer, graphRoot } = renderGraph(
       graphResponse(nodes, [edge]),
     );
@@ -585,9 +573,13 @@ describe("ResponseRelationGraph", () => {
       "button[aria-label='回答ウィンドウを閉じる']",
     );
     expect(closeButtons).toHaveLength(2);
+    const firstCloseButton = closeButtons[0];
+    if (!firstCloseButton) {
+      throw new Error("Expected a close button to be present");
+    }
 
     act(() => {
-      fireEvent.click(closeButtons[0] as Element);
+      fireEvent.click(firstCloseButton);
     });
 
     const remainingPanels = Array.from(
@@ -600,12 +592,7 @@ describe("ResponseRelationGraph", () => {
   });
 
   it("opens a persistent edge evidence window on edge click, reachable without hover", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [nodeA, nodeB] = nodes;
-    if (!nodeA || !nodeB) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const edge = graphEdge(nodeA.responseId, nodeB.responseId);
+    const { nodes, nodeA, edge } = twoNodeEdgeFixture();
     const { graphContainer, graphRoot } = renderGraph(
       graphResponse(nodes, [edge]),
     );

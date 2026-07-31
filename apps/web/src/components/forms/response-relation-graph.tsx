@@ -15,6 +15,7 @@ import {
 import { AlertTriangle, Loader2, Network, X } from "lucide-react";
 import {
   type KeyboardEvent,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
   useEffect,
@@ -36,6 +37,14 @@ type GraphNode = ResponseRelationGraphResponse["nodes"][number];
 type GraphEdge = ResponseRelationGraphResponse["edges"][number];
 type DenseCluster = ResponseRelationGraphResponse["denseClusters"][number];
 
+/**
+ * A d3-force simulation node backing one rendered graph node. `id` is the
+ * response id (or `cluster:<id>` for a dense-cluster hub). `node` is the API
+ * response data, `null` for hub nodes. `hidden` hub nodes exist purely to
+ * pull dense-cluster members together via links and are never rendered.
+ * `x`/`y`/`vx`/`vy`/`fx`/`fy` (from `SimulationNodeDatum`) are graph
+ * coordinates mutated in place by the simulation each tick.
+ */
 export type LayoutNode = SimulationNodeDatum & {
   id: string;
   node: GraphNode | null;
@@ -57,6 +66,12 @@ type PositionedLayoutLink = LayoutLink & {
   source: PositionedLayoutNode;
   target: PositionedLayoutNode;
 };
+
+/** A point in graph/simulation coordinate space (unaffected by pan/zoom). */
+type GraphPoint = { x: number; y: number };
+
+/** The canvas's pan/zoom state: translate (`x`, `y`) then scale (`k`). */
+type Camera = { x: number; y: number; k: number };
 
 const graphKeyboardPanStep = 56;
 const cameraMinScale = 0.15;
@@ -186,16 +201,50 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+/** Order-independent identity for an unordered pair of layout node ids. */
 export function pairKey(a: string, b: string): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+/** Adjacency set (by node id) used to exempt already-linked pairs from `forceMinSeparation`. */
+export type LinkedNeighbors = Map<string, Set<string>>;
+
+/** Records `a` and `b` as linked in both directions of `neighbors`. */
+export function addLinkedPair(
+  neighbors: LinkedNeighbors,
+  a: string,
+  b: string,
+): void {
+  let neighborsOfA = neighbors.get(a);
+  if (!neighborsOfA) {
+    neighborsOfA = new Set();
+    neighbors.set(a, neighborsOfA);
+  }
+  neighborsOfA.add(b);
+  let neighborsOfB = neighbors.get(b);
+  if (!neighborsOfB) {
+    neighborsOfB = new Set();
+    neighbors.set(b, neighborsOfB);
+  }
+  neighborsOfB.add(a);
 }
 
 function isPositionedNode(node: LayoutNode): node is PositionedLayoutNode {
   return typeof node.x === "number" && typeof node.y === "number";
 }
 
+/**
+ * A d3-force `Force` that pushes apart any two nodes NOT present in
+ * `linkedNeighbors` once they get closer than `options.minDistance` (graph
+ * coordinate units) — and applies no force at all once they clear that
+ * distance. Because the repulsion has a hard cutoff instead of decaying
+ * indefinitely like `forceManyBody`, unrelated clusters settle at a bounded
+ * distance apart rather than drifting away from each other forever.
+ * `options.strength` is a d3-force-style per-tick velocity coefficient
+ * (0–1), not a physical unit.
+ */
 export function forceMinSeparation(
-  linkedPairKeys: Set<string>,
+  linkedNeighbors: LinkedNeighbors,
   options: { minDistance: number; strength: number },
 ): Force<LayoutNode, LayoutLink> {
   let nodes: LayoutNode[] = [];
@@ -203,10 +252,11 @@ export function forceMinSeparation(
     for (let i = 0; i < nodes.length; i++) {
       const a = nodes[i];
       if (!a || typeof a.x !== "number" || typeof a.y !== "number") continue;
+      const neighborsOfA = linkedNeighbors.get(a.id);
       for (let j = i + 1; j < nodes.length; j++) {
         const b = nodes[j];
         if (!b || typeof b.x !== "number" || typeof b.y !== "number") continue;
-        if (linkedPairKeys.has(pairKey(a.id, b.id))) continue;
+        if (neighborsOfA?.has(b.id)) continue;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const dist = Math.hypot(dx, dy) || 0.01;
@@ -294,14 +344,14 @@ function useForceGraphLayout(
       return created;
     });
 
-    const linkedPairKeys = new Set<string>();
+    const linkedNeighbors: LinkedNeighbors = new Map();
     const layoutLinks: LayoutLink[] = edges
       .filter(
         (edge) =>
           nextIds.has(edge.responseIdA) && nextIds.has(edge.responseIdB),
       )
       .map((edge) => {
-        linkedPairKeys.add(pairKey(edge.responseIdA, edge.responseIdB));
+        addLinkedPair(linkedNeighbors, edge.responseIdA, edge.responseIdB);
         return {
           source: edge.responseIdA,
           target: edge.responseIdB,
@@ -335,7 +385,7 @@ function useForceGraphLayout(
       hub.clusterId = cluster.id;
       layoutNodes.push(hub);
       for (const responseId of memberIds) {
-        linkedPairKeys.add(pairKey(hubId, responseId));
+        addLinkedPair(linkedNeighbors, hubId, responseId);
         layoutLinks.push({
           source: hubId,
           target: responseId,
@@ -355,7 +405,7 @@ function useForceGraphLayout(
         for (let j = i + 1; j < memberIds.length; j++) {
           const memberB = memberIds[j];
           if (!memberB) continue;
-          linkedPairKeys.add(pairKey(memberA, memberB));
+          addLinkedPair(linkedNeighbors, memberA, memberB);
         }
       }
     }
@@ -388,7 +438,7 @@ function useForceGraphLayout(
       .force("collide", forceCollide<LayoutNode>().radius(24))
       .force(
         "minSeparation",
-        forceMinSeparation(linkedPairKeys, {
+        forceMinSeparation(linkedNeighbors, {
           minDistance: nonRelationMinDistance,
           strength: nonRelationStrength,
         }),
@@ -491,6 +541,7 @@ function CursorTooltip({ tooltip }: { tooltip: TooltipState }) {
   );
   return (
     <div
+      role="tooltip"
       className="pointer-events-none fixed z-50 w-72 rounded-md border bg-popover p-2 text-xs shadow-lg"
       style={{ left, top }}
     >
@@ -540,6 +591,13 @@ type NodeDragSession = {
   moved: boolean;
 };
 
+/**
+ * Renders the response relation graph as an SVG driven by a continuously
+ * ticking d3-force simulation (see `useForceGraphLayout`). Owns the pan/zoom
+ * camera, node drag-vs-click detection, edge/node hover and keyboard-focus
+ * tooltips, and reports node/edge activation via `onSelectResponse` /
+ * `onSelectEdge` — it does not manage any popup-window state itself.
+ */
 export function ResponseRelationGraphCanvas({
   nodes,
   edges,
@@ -563,7 +621,7 @@ export function ResponseRelationGraphCanvas({
   const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
-  const clientToGraphPoint = (clientX: number, clientY: number) => {
+  const clientToGraphPoint = (clientX: number, clientY: number): GraphPoint => {
     const bounds = svgRef.current?.getBoundingClientRect();
     if (!bounds) return { x: 0, y: 0 };
     return {
@@ -572,7 +630,11 @@ export function ResponseRelationGraphCanvas({
     };
   };
 
-  const graphToClientPoint = (x: number, y: number, forCamera = camera) => {
+  const graphToClientPoint = (
+    x: number,
+    y: number,
+    forCamera: Camera = camera,
+  ): GraphPoint => {
     const bounds = svgRef.current?.getBoundingClientRect();
     const left = bounds?.left ?? 0;
     const top = bounds?.top ?? 0;
@@ -586,7 +648,7 @@ export function ResponseRelationGraphCanvas({
   // (within a margin), without going through setCamera's async updater —
   // callers need the resulting camera synchronously to also reposition the
   // focus tooltip in the same event handler.
-  const cameraKeepingPointVisible = (x: number, y: number) => {
+  const cameraKeepingPointVisible = (x: number, y: number): Camera => {
     const bounds = svgRef.current?.getBoundingClientRect();
     if (!bounds) return camera;
     const screenX = x * camera.k + camera.x;
@@ -607,7 +669,7 @@ export function ResponseRelationGraphCanvas({
     return { ...camera, x: nextX, y: nextY };
   };
 
-  const handleWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
+  const handleWheel = (event: ReactWheelEvent<SVGSVGElement>): void => {
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
     const px = event.clientX - bounds.left;
@@ -623,7 +685,7 @@ export function ResponseRelationGraphCanvas({
     });
   };
 
-  const panByKeyboard = (event: KeyboardEvent<HTMLFieldSetElement>) => {
+  const panByKeyboard = (event: KeyboardEvent<HTMLFieldSetElement>): void => {
     const deltaByKey: Record<string, { x: number; y: number } | undefined> = {
       ArrowDown: { x: 0, y: -graphKeyboardPanStep },
       ArrowLeft: { x: graphKeyboardPanStep, y: 0 },
@@ -640,7 +702,7 @@ export function ResponseRelationGraphCanvas({
     }));
   };
 
-  const startPanning = (event: ReactPointerEvent<SVGSVGElement>) => {
+  const startPanning = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     setPanSession({
@@ -652,7 +714,7 @@ export function ResponseRelationGraphCanvas({
     });
   };
 
-  const panCanvas = (event: ReactPointerEvent<SVGSVGElement>) => {
+  const panCanvas = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (!panSession || panSession.pointerId !== event.pointerId) return;
     setCamera((current) => ({
       ...current,
@@ -661,7 +723,7 @@ export function ResponseRelationGraphCanvas({
     }));
   };
 
-  const stopPanning = (event: ReactPointerEvent<SVGSVGElement>) => {
+  const stopPanning = (event: ReactPointerEvent<SVGSVGElement>): void => {
     if (!panSession || panSession.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -672,7 +734,7 @@ export function ResponseRelationGraphCanvas({
   const startNodeDrag = (
     event: ReactPointerEvent<HTMLAnchorElement>,
     id: string,
-  ) => {
+  ): void => {
     if (event.button !== 0) return;
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -685,7 +747,7 @@ export function ResponseRelationGraphCanvas({
     });
   };
 
-  const moveNodeDrag = (event: ReactPointerEvent<HTMLAnchorElement>) => {
+  const moveNodeDrag = (event: ReactPointerEvent<HTMLAnchorElement>): void => {
     if (!nodeDrag || nodeDrag.pointerId !== event.pointerId) return;
     const dx = event.clientX - nodeDrag.startClientX;
     const dy = event.clientY - nodeDrag.startClientY;
@@ -702,14 +764,17 @@ export function ResponseRelationGraphCanvas({
   const endNodeDrag = (
     event: ReactPointerEvent<HTMLAnchorElement>,
     id: string,
-  ) => {
+    wasCancelled: boolean,
+  ): void => {
     if (!nodeDrag || nodeDrag.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     if (nodeDrag.moved) {
       endDrag(id);
-    } else {
+    } else if (!wasCancelled) {
+      // A pointercancel (e.g. browser-initiated gesture interruption) is not
+      // a completed click, so it must not open a response window.
       onSelectResponse(id);
     }
     setNodeDrag(null);
@@ -838,10 +903,17 @@ export function ResponseRelationGraphCanvas({
                 aria-label={`回答 ${responseShortId(node.responseId)} を表示`}
                 onPointerDown={(event) => startNodeDrag(event, node.responseId)}
                 onPointerMove={moveNodeDrag}
-                onPointerUp={(event) => endNodeDrag(event, node.responseId)}
-                onPointerCancel={(event) => endNodeDrag(event, node.responseId)}
+                onPointerUp={(event) =>
+                  endNodeDrag(event, node.responseId, false)
+                }
+                onPointerCancel={(event) =>
+                  endNodeDrag(event, node.responseId, true)
+                }
                 onKeyDown={(event) => {
-                  if (event.key !== " ") return;
+                  if (event.key !== " " && event.key !== "Enter") return;
+                  // Prevent the native anchor navigation to "#response-…"
+                  // (which would add a history entry) for both activation
+                  // keys, matching the edge links' onClick behavior.
                   event.preventDefault();
                   onSelectResponse(node.responseId);
                 }}
@@ -1018,6 +1090,70 @@ function useFloatingWindowDrag(
   return { onHeaderPointerDown, onHeaderPointerMove, onHeaderPointerUp };
 }
 
+type FloatingWindowProps = {
+  title: string;
+  closeLabel: string;
+  width: number;
+  position: { x: number; y: number };
+  zIndex: number;
+  isFront: boolean;
+  onClose: () => void;
+  onFocus: () => void;
+  onMove: (position: { x: number; y: number }) => void;
+  children: ReactNode;
+};
+
+/** Shared draggable, closable floating window shell used by both the
+ * response-detail and edge-evidence popups. */
+function FloatingWindow({
+  title,
+  closeLabel,
+  width,
+  position,
+  zIndex,
+  isFront,
+  onClose,
+  onFocus,
+  onMove,
+  children,
+}: FloatingWindowProps) {
+  const drag = useFloatingWindowDrag(position, onMove);
+
+  return (
+    <div
+      className="fixed max-w-[calc(100vw-2rem)] rounded-lg border bg-card shadow-xl"
+      style={{ left: position.x, top: position.y, width, zIndex }}
+      onPointerDownCapture={onFocus}
+    >
+      <div
+        className={[
+          "flex cursor-grab items-center justify-between rounded-t-lg border-b px-3 py-2 active:cursor-grabbing",
+          isFront ? "bg-muted" : "bg-muted/50",
+        ].join(" ")}
+        onPointerDown={drag.onHeaderPointerDown}
+        onPointerMove={drag.onHeaderPointerMove}
+        onPointerUp={drag.onHeaderPointerUp}
+        onPointerCancel={drag.onHeaderPointerUp}
+      >
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {title}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0"
+          aria-label={closeLabel}
+          onClick={onClose}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="max-h-[70vh] space-y-3 overflow-auto p-3">{children}</div>
+    </div>
+  );
+}
+
 type FloatingResponseWindowProps = {
   formId: string;
   responseId: string;
@@ -1039,42 +1175,20 @@ function FloatingResponseWindow({
   onFocus,
   onMove,
 }: FloatingResponseWindowProps) {
-  const drag = useFloatingWindowDrag(position, onMove);
-
   return (
-    <div
-      className="fixed w-[420px] max-w-[calc(100vw-2rem)] rounded-lg border bg-card shadow-xl"
-      style={{ left: position.x, top: position.y, zIndex }}
-      onPointerDownCapture={onFocus}
+    <FloatingWindow
+      title={`回答 ${responseShortId(responseId)}`}
+      closeLabel="回答ウィンドウを閉じる"
+      width={420}
+      position={position}
+      zIndex={zIndex}
+      isFront={isFront}
+      onClose={onClose}
+      onFocus={onFocus}
+      onMove={onMove}
     >
-      <div
-        className={[
-          "flex cursor-grab items-center justify-between rounded-t-lg border-b px-3 py-2 active:cursor-grabbing",
-          isFront ? "bg-muted" : "bg-muted/50",
-        ].join(" ")}
-        onPointerDown={drag.onHeaderPointerDown}
-        onPointerMove={drag.onHeaderPointerMove}
-        onPointerUp={drag.onHeaderPointerUp}
-        onPointerCancel={drag.onHeaderPointerUp}
-      >
-        <span className="truncate font-mono text-xs text-muted-foreground">
-          回答 {responseShortId(responseId)}
-        </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-6 w-6 p-0"
-          aria-label="回答ウィンドウを閉じる"
-          onClick={onClose}
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      <div className="max-h-[70vh] overflow-auto p-3">
-        <ResponseDetailView formId={formId} responseId={responseId} />
-      </div>
-    </div>
+      <ResponseDetailView formId={formId} responseId={responseId} />
+    </FloatingWindow>
   );
 }
 
@@ -1099,61 +1213,38 @@ function FloatingEdgeWindow({
   onMove,
   onSelectResponse,
 }: FloatingEdgeWindowProps) {
-  const drag = useFloatingWindowDrag(position, onMove);
-
   return (
-    <div
-      className="fixed w-[360px] max-w-[calc(100vw-2rem)] rounded-lg border bg-card shadow-xl"
-      style={{ left: position.x, top: position.y, zIndex }}
-      onPointerDownCapture={onFocus}
+    <FloatingWindow
+      title={`リンク根拠 ${responseShortId(edge.responseIdA)} / ${responseShortId(edge.responseIdB)}`}
+      closeLabel="リンク根拠ウィンドウを閉じる"
+      width={360}
+      position={position}
+      zIndex={zIndex}
+      isFront={isFront}
+      onClose={onClose}
+      onFocus={onFocus}
+      onMove={onMove}
     >
-      <div
-        className={[
-          "flex cursor-grab items-center justify-between rounded-t-lg border-b px-3 py-2 active:cursor-grabbing",
-          isFront ? "bg-muted" : "bg-muted/50",
-        ].join(" ")}
-        onPointerDown={drag.onHeaderPointerDown}
-        onPointerMove={drag.onHeaderPointerMove}
-        onPointerUp={drag.onHeaderPointerUp}
-        onPointerCancel={drag.onHeaderPointerUp}
-      >
-        <span className="truncate font-mono text-xs text-muted-foreground">
-          リンク根拠 {responseShortId(edge.responseIdA)} /{" "}
-          {responseShortId(edge.responseIdB)}
-        </span>
+      <EdgeEvidence edge={edge} />
+      <div className="flex gap-2">
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="sm"
-          className="h-6 w-6 p-0"
-          aria-label="リンク根拠ウィンドウを閉じる"
-          onClick={onClose}
+          onClick={() => onSelectResponse(edge.responseIdA)}
         >
-          <X className="h-3.5 w-3.5" />
+          Aを表示
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => onSelectResponse(edge.responseIdB)}
+        >
+          Bを表示
         </Button>
       </div>
-      <div className="max-h-[70vh] space-y-3 overflow-auto p-3">
-        <EdgeEvidence edge={edge} />
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onSelectResponse(edge.responseIdA)}
-          >
-            Aを表示
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onSelectResponse(edge.responseIdB)}
-          >
-            Bを表示
-          </Button>
-        </div>
-      </div>
-    </div>
+    </FloatingWindow>
   );
 }
 
@@ -1172,6 +1263,45 @@ type OpenEdgeWindow = {
 
 const windowCascadeStep = 32;
 const windowInitialPosition = { x: 80, y: 96 };
+// Keep at least this much of a window's header on-screen so its drag handle
+// and close button always stay reachable, however far it's cascaded or moved.
+const windowHeaderReserve = 200;
+
+function viewportSize(): { width: number; height: number } {
+  if (typeof window === "undefined") return { width: 1280, height: 800 };
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function clampWindowPosition(position: { x: number; y: number }): {
+  x: number;
+  y: number;
+} {
+  const { width, height } = viewportSize();
+  return {
+    x: clamp(position.x, 0, Math.max(0, width - windowHeaderReserve)),
+    y: clamp(position.y, 0, Math.max(0, height - windowHeaderReserve)),
+  };
+}
+
+// Cascades new windows diagonally without ever letting the offset grow
+// past what the current viewport can keep reachable — once it would run
+// out of room, it wraps back to the start instead of drifting off-screen.
+function cascadeWindowPosition(index: number): { x: number; y: number } {
+  const { width, height } = viewportSize();
+  const maxStepsX = Math.floor(
+    (width - windowInitialPosition.x - windowHeaderReserve) / windowCascadeStep,
+  );
+  const maxStepsY = Math.floor(
+    (height - windowInitialPosition.y - windowHeaderReserve) /
+      windowCascadeStep,
+  );
+  const maxSteps = Math.max(1, Math.min(maxStepsX, maxStepsY));
+  const step = index % maxSteps;
+  return clampWindowPosition({
+    x: windowInitialPosition.x + step * windowCascadeStep,
+    y: windowInitialPosition.y + step * windowCascadeStep,
+  });
+}
 
 export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   const [openWindows, setOpenWindows] = useState<OpenResponseWindow[]>([]);
@@ -1201,16 +1331,14 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           win.responseId === responseId ? { ...win, zIndex: nextZ } : win,
         );
       }
-      const offset =
-        (current.length + openEdgeWindows.length) * windowCascadeStep;
+      const position = cascadeWindowPosition(
+        current.length + openEdgeWindows.length,
+      );
       return [
         ...current,
         {
           responseId,
-          position: {
-            x: windowInitialPosition.x + offset,
-            y: windowInitialPosition.y + offset,
-          },
+          position,
           zIndex: nextZ,
         },
       ];
@@ -1238,7 +1366,9 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   ) => {
     setOpenWindows((current) =>
       current.map((win) =>
-        win.responseId === responseId ? { ...win, position } : win,
+        win.responseId === responseId
+          ? { ...win, position: clampWindowPosition(position) }
+          : win,
       ),
     );
   };
@@ -1253,16 +1383,15 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           win.key === key ? { ...win, edge, zIndex: nextZ } : win,
         );
       }
-      const offset = (current.length + openWindows.length) * windowCascadeStep;
+      const position = cascadeWindowPosition(
+        current.length + openWindows.length,
+      );
       return [
         ...current,
         {
           key,
           edge,
-          position: {
-            x: windowInitialPosition.x + offset,
-            y: windowInitialPosition.y + offset,
-          },
+          position,
           zIndex: nextZ,
         },
       ];
@@ -1282,7 +1411,11 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
 
   const moveEdgeWindow = (key: string, position: { x: number; y: number }) => {
     setOpenEdgeWindows((current) =>
-      current.map((win) => (win.key === key ? { ...win, position } : win)),
+      current.map((win) =>
+        win.key === key
+          ? { ...win, position: clampWindowPosition(position) }
+          : win,
+      ),
     );
   };
 
