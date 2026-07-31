@@ -339,6 +339,36 @@ function securityEvidenceTuples(): Array<[string, string]> {
   ];
 }
 
+function securityEvidenceFingerprints() {
+  const plan = securityPlanEntries();
+  const componentByCode: Record<string, { type: string; name: string }> = {
+    a1: { type: "browser", name: "timezone" },
+    a2: { type: "browser", name: "language" },
+    a3: { type: "browser", name: "platform" },
+    a4: { type: "browser", name: "userAgent" },
+    b1: { type: "fingerprintjs", name: "visitorId" },
+    b2: { type: "fingerprintjs", name: "canvas" },
+    b3: { type: "fingerprintjs", name: "fonts" },
+    b4: { type: "fingerprintjs", name: "screen" },
+  };
+  const planBySlot = new Map(plan.map((entry) => [entry.a, entry]));
+  return securityEvidenceTuples().map(([slot, digest]) => {
+    const planEntry = planBySlot.get(slot);
+    if (!planEntry) {
+      throw new Error(`Missing plan entry for slot ${slot}`);
+    }
+    const component = componentByCode[planEntry.c];
+    if (!component) {
+      throw new Error(`Missing component mapping for code ${planEntry.c}`);
+    }
+    return {
+      type: component.type,
+      name: component.name,
+      value_hash: digest,
+    };
+  });
+}
+
 function validSecurityServerContext() {
   return {
     k: sha256Hex("security-exchange-cookie:cookie-token"),
@@ -974,7 +1004,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         formId: FORM_ID,
         publicId: "test-public-id",
       });
-      const securityEvidence = securityEvidenceTuples();
+      const securityFingerprints = securityEvidenceFingerprints();
       let insertedFingerprints: unknown;
       const txInsert = vi.fn((table: unknown) => ({
         values: vi.fn(async (values: unknown) => {
@@ -999,9 +1029,8 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   collectionExpiresAt: new Date(Date.now() + 60_000),
                   observationDigestJson: {
                     d: observationDigest,
-                    e: securityEvidence,
+                    fp: securityFingerprints,
                   },
-                  serverContextJson: validSecurityServerContext(),
                   consumedAt: null,
                   finalizedAt: new Date(),
                 },

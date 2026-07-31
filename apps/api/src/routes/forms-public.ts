@@ -560,9 +560,21 @@ const exchangeServerContextSchema = z.object({
   ),
 });
 
+type ResponseFingerprintEvidence = {
+  type: string;
+  name: string;
+  value_hash: string;
+};
+
+const responseFingerprintEvidenceSchema = z.object({
+  type: z.string(),
+  name: z.string(),
+  value_hash: z.string(),
+});
+
 const exchangeObservationContextSchema = z.object({
   d: z.string().length(64),
-  e: z.array(securityEvidenceEntrySchema).optional(),
+  fp: z.array(responseFingerprintEvidenceSchema).optional(),
 });
 
 type ExchangeObservationTuple = z.infer<
@@ -575,12 +587,6 @@ type SecurityObservationPlanEntry = {
   n: string;
   r: boolean;
   c: string;
-};
-
-type ResponseFingerprintEvidence = {
-  type: string;
-  name: string;
-  value_hash: string;
 };
 
 const securityObservationTemplate = [
@@ -867,7 +873,6 @@ async function consumeFingerprintCollectionOrThrow(params: {
       userAgentHash: fingerprintCollectionAttempt.userAgentHash,
       collectionExpiresAt: fingerprintCollectionAttempt.collectionExpiresAt,
       observationDigestJson: fingerprintCollectionAttempt.observationDigestJson,
-      serverContextJson: fingerprintCollectionAttempt.serverContextJson,
       consumedAt: fingerprintCollectionAttempt.consumedAt,
       finalizedAt: fingerprintCollectionAttempt.finalizedAt,
     })
@@ -906,23 +911,9 @@ async function consumeFingerprintCollectionOrThrow(params: {
     throw new FingerprintCollectionTokenError();
   }
 
-  if (!observationContext.data.e) {
-    return { attemptId: attempt.id, fingerprints: [] };
-  }
-
-  const serverContext = exchangeServerContextSchema.safeParse(
-    attempt.serverContextJson,
-  );
-  if (!serverContext.success) {
-    throw new FingerprintCollectionTokenError();
-  }
-
   return {
     attemptId: attempt.id,
-    fingerprints: buildResponseFingerprintsFromSecurityEvidence({
-      evidence: observationContext.data.e,
-      plan: serverContext.data.s,
-    }),
+    fingerprints: observationContext.data.fp ?? [],
   };
 }
 
@@ -1416,12 +1407,17 @@ export const formsPublicRouter = createHonoApp()
             publicId,
           });
 
+          const fingerprints = buildResponseFingerprintsFromSecurityEvidence({
+            evidence: payload.d,
+            plan: serverContext.s,
+          });
+
           await tx
             .update(fingerprintCollectionAttempt)
             .set({
               collectionTokenHash: hashExchangeToken(collectionToken),
               collectionExpiresAt,
-              observationDigestJson: { d: observationDigest, e: payload.d },
+              observationDigestJson: { d: observationDigest, fp: fingerprints },
               finalizedAt: currentTime,
             })
             .where(eq(fingerprintCollectionAttempt.id, attempt.id));
