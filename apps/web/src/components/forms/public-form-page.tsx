@@ -1,7 +1,9 @@
 import {
   extractQuestionsFromPlateContent,
   isCompletionTargetPage,
+  MAX_REPORTED_FINGERPRINTS,
   MIN_SECURITY_OBSERVATION_COUNT,
+  type ReportedFingerprintEntry,
   type ResponseDataItem,
   resolvePageIndexByPageId,
   responsePayloadItemSchema,
@@ -145,6 +147,36 @@ function buildSecurityEvidence(
     );
     return valueHash ? [[slot, valueHash]] : [];
   });
+}
+
+function isReportedFingerprintType(
+  value: string,
+): value is ReportedFingerprintEntry["type"] {
+  return (
+    value === "fingerprintjs" || value === "thumbmarkjs" || value === "browser"
+  );
+}
+
+/**
+ * Flattens every client-collected fingerprint component (not just the ones
+ * sampled into the security-exchange plan) so they can be persisted for
+ * uniqueness scoring/analytics. This is informational only; it carries no
+ * weight in the security-exchange verification.
+ */
+function buildReportedFingerprints(
+  collected: CollectedSignal[],
+): ReportedFingerprintEntry[] {
+  return collected
+    .flatMap(({ fingerprintType, components }) =>
+      isReportedFingerprintType(fingerprintType)
+        ? components.map((component) => ({
+            type: fingerprintType,
+            name: component.componentName,
+            value_hash: component.componentValueHash,
+          }))
+        : [],
+    )
+    .slice(0, MAX_REPORTED_FINGERPRINTS);
 }
 
 interface PublicFormPageState {
@@ -662,8 +694,8 @@ function PublicFormPageInner() {
                 r: exchangeOpen.r,
                 v: fingerprintExchangeVersion,
                 n: clientNonce,
-                p: captchaToken,
                 d: securityEvidence,
+                fp: buildReportedFingerprints(collectedFp),
               },
             }),
           );
