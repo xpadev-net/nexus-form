@@ -1322,6 +1322,29 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
 
   const graph = graphQuery.data;
 
+  // Re-clamp every open window whenever the viewport is resized, so a
+  // popup positioned near the edge of a large viewport can't end up with
+  // its header (its only move/close controls) stranded off-screen after
+  // the window shrinks.
+  useEffect(() => {
+    const handleResize = () => {
+      setOpenWindows((current) =>
+        current.map((win) => ({
+          ...win,
+          position: clampWindowPosition(win.position),
+        })),
+      );
+      setOpenEdgeWindows((current) =>
+        current.map((win) => ({
+          ...win,
+          position: clampWindowPosition(win.position),
+        })),
+      );
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const openResponseWindow = (responseId: string) => {
     const nextZ = ++zIndexCounterRef.current;
     setOpenWindows((current) => {
