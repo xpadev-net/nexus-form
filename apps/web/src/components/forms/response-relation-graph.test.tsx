@@ -343,15 +343,16 @@ describe("ResponseRelationGraphCanvas", () => {
       fireEvent.click(edgeHitArea);
     });
 
-    expect(onSelectEdge).toHaveBeenCalledWith(edge);
+    expect(onSelectEdge).toHaveBeenCalledWith([edge]);
   });
 
-  it("merges edges that collapse onto the same pair of merged nodes, keeping every original edge's evidence", () => {
+  it("collapses multiple edges onto one visual line without fabricating combined evidence for a pair they don't describe", () => {
     const nodeX = graphNode(0);
     const nodeY1 = graphNode(1);
     // response-2 merges into response-1 (the lower id wins as
     // representative), so both edge1 and edge2 below collapse onto the same
-    // rendered (nodeX, nodeY1) pair.
+    // rendered (nodeX, nodeY1) pair even though edge2 was really found
+    // between nodeX and response-2, not nodeX and response-1.
     const nodeY2 = { ...graphNode(2), contentHash: nodeY1.contentHash };
     const edge1: GraphEdge = {
       ...graphEdge(nodeX.responseId, nodeY1.responseId),
@@ -381,20 +382,16 @@ describe("ResponseRelationGraphCanvas", () => {
     });
 
     expect(onSelectEdge).toHaveBeenCalledTimes(1);
-    const mergedEdge = onSelectEdge.mock.calls[0]?.[0] as GraphEdge;
-    // The strongest of the two collapsed edges' strength/evidence wins...
-    expect(mergedEdge.strength).toBe("STRONG");
-    expect(mergedEdge.deviceEvidence).toBe(0.9);
-    // ...but neither edge's reasonCodes are dropped in the process.
-    expect(mergedEdge.reasonCodes).toEqual(
-      expect.arrayContaining(["support:device", "support:visitorId"]),
-    );
-    // The merged edge's endpoints are the representative ids (both nodes
-    // are actually visible), not response-2's id (which has no node of its
-    // own on the graph after merging).
-    expect([mergedEdge.responseIdA, mergedEdge.responseIdB].sort()).toEqual(
-      [nodeX.responseId, nodeY1.responseId].sort(),
-    );
+    // Every original edge is passed through unmodified — not merged into
+    // one synthetic edge — so each keeps its own real endpoints/evidence.
+    const selectedEdges = onSelectEdge.mock.calls[0]?.[0] as GraphEdge[];
+    expect(selectedEdges).toHaveLength(2);
+    expect(selectedEdges).toEqual(expect.arrayContaining([edge1, edge2]));
+    expect(
+      selectedEdges.find(
+        (selectedEdge) => selectedEdge.responseIdB === nodeY2.responseId,
+      ),
+    ).toEqual(edge2);
   });
 
   it("supports keyboard panning", () => {

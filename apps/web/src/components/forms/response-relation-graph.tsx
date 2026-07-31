@@ -60,7 +60,18 @@ export type LayoutNode = SimulationNodeDatum & {
 };
 
 type LayoutLink = SimulationLinkDatum<LayoutNode> & {
+  /** A real (unmodified) edge representing this line visually — the
+   * strongest of `collapsedEdges` when more than one original edge
+   * collapsed onto this pair, so styling never depends on fabricated data.
+   * `null` only for hidden dense-cluster hub links, which are never
+   * rendered as a visible line. */
   edge: GraphEdge | null;
+  /** Every original edge that collapsed onto this pair (length 1 when no
+   * merging occurred, empty for hidden hub links). Each entry keeps its own
+   * true endpoints/evidence — nothing here is combined or rewritten, so the
+   * evidence popup can show exactly what was actually found without
+   * misattributing one pair's relation to another. */
+  collapsedEdges: GraphEdge[];
   cluster: DenseCluster | null;
   sourceId: string;
   targetId: string;
@@ -219,77 +230,29 @@ function toVisibleStrength(
   }
 }
 
-type FamilyContribution = GraphEdge["familyContributions"][number];
-
-/** Merges same-family contributions (max score, union of reasonCodes) so
- * combining several original edges' evidence doesn't produce duplicate
- * per-family entries. */
-function mergeFamilyContributions(
-  contributions: FamilyContribution[],
-): FamilyContribution[] {
-  const byFamily = new Map<string, FamilyContribution>();
-  for (const contribution of contributions) {
-    const existing = byFamily.get(contribution.family);
-    if (!existing) {
-      byFamily.set(contribution.family, {
-        family: contribution.family,
-        score: contribution.score,
-        reasonCodes: [...contribution.reasonCodes],
-      });
-      continue;
-    }
-    existing.score = Math.max(existing.score, contribution.score);
-    for (const reasonCode of contribution.reasonCodes) {
-      if (!existing.reasonCodes.includes(reasonCode)) {
-        existing.reasonCodes.push(reasonCode);
-      }
-    }
-  }
-  return [...byFamily.values()];
+/** Orders `edges` by strength then evidence, strongest last (used to pick a
+ * single real edge to represent a collapsed group visually — stroke color,
+ * width, hover title — without fabricating combined data attributed to a
+ * pair the evidence doesn't actually describe). */
+function isStrongerEdge(candidate: GraphEdge, current: GraphEdge): boolean {
+  const rankDiff =
+    strengthRank(candidate.strength) - strengthRank(current.strength);
+  if (rankDiff !== 0) return rankDiff > 0;
+  return candidate.deviceEvidence > current.deviceEvidence;
 }
 
-/**
- * Combines every original edge that collapses onto the same merged-node pair
- * into one edge, instead of keeping just the strongest and silently
- * dropping the others' evidence. The result's endpoints are the
- * representative responseIds (`sourceId`/`targetId`) rather than any
- * original member's id, so the rendered link's popup always refers to
- * responses that actually have a visible node.
- */
-function mergeEdges(
-  collapsedEdges: GraphEdge[],
-  sourceId: string,
-  targetId: string,
-): GraphEdge {
-  let strength: GraphEdge["strength"] = "NONE";
-  let deviceEvidence = 0;
-  let v4Support = false;
-  let v6Strong = false;
-  let stateSupport = false;
-  const reasonCodes: string[] = [];
-  const familyContributions: FamilyContribution[] = [];
+/** Picks the strongest edge among several original edges that collapsed
+ * onto the same pair of merged nodes, ordering ties by declaration order.
+ * The pick is used only for the line's visual styling — every collapsed
+ * edge is still shown, unmodified and separately, in its evidence popup. */
+function strongestOf(collapsedEdges: GraphEdge[]): GraphEdge {
+  let strongest = collapsedEdges[0];
   for (const edge of collapsedEdges) {
-    strength = strongerStrength(strength, edge.strength);
-    deviceEvidence = Math.max(deviceEvidence, edge.deviceEvidence);
-    v4Support ||= edge.v4Support;
-    v6Strong ||= edge.v6Strong;
-    stateSupport ||= edge.stateSupport;
-    for (const reasonCode of edge.reasonCodes) {
-      if (!reasonCodes.includes(reasonCode)) reasonCodes.push(reasonCode);
-    }
-    familyContributions.push(...edge.familyContributions);
+    if (!strongest || isStrongerEdge(edge, strongest)) strongest = edge;
   }
-  return {
-    responseIdA: sourceId,
-    responseIdB: targetId,
-    strength,
-    deviceEvidence,
-    v4Support,
-    v6Strong,
-    stateSupport,
-    reasonCodes,
-    familyContributions: mergeFamilyContributions(familyContributions),
-  };
+  // collapsedEdges is only ever built from a non-empty array (see
+  // useForceGraphLayout), so `strongest` is always defined here.
+  return strongest as GraphEdge;
 }
 
 function edgeKey(edge: GraphEdge): string {
@@ -669,9 +632,9 @@ function useForceGraphLayout(
 
     const linkedNeighbors: LinkedNeighbors = new Map();
     // Multiple original edges can land on the same pair of merged nodes;
-    // combine them into one edge (rather than keeping just the strongest and
-    // discarding the rest) so the group-level link's evidence and endpoints
-    // still account for every collapsed original edge.
+    // group them under that pair (rather than fabricating one combined edge,
+    // which would misattribute evidence to a pair it was never actually
+    // found for) so the popup can later show each real edge separately.
     const collapsedEdgesByPair = new Map<
       string,
       { edges: GraphEdge[]; sourceId: string; targetId: string }
@@ -706,7 +669,8 @@ function useForceGraphLayout(
           target: targetId,
           sourceId,
           targetId,
-          edge: mergeEdges(collapsedEdges, sourceId, targetId),
+          edge: strongestOf(collapsedEdges),
+          collapsedEdges,
           cluster: null,
         };
       },
@@ -749,6 +713,7 @@ function useForceGraphLayout(
           sourceId: hubId,
           targetId: responseId,
           edge: null,
+          collapsedEdges: [],
           cluster,
         });
       }
@@ -894,7 +859,13 @@ function EdgeEvidence({ edge }: { edge: GraphEdge }) {
 }
 
 type TooltipState =
-  | { kind: "edge"; edge: GraphEdge; x: number; y: number }
+  | {
+      kind: "edge";
+      edge: GraphEdge;
+      collapsedCount: number;
+      x: number;
+      y: number;
+    }
   | {
       kind: "node";
       node: GraphNode;
@@ -928,6 +899,12 @@ function CursorTooltip({ tooltip }: { tooltip: TooltipState }) {
             {responseShortId(tooltip.edge.responseIdB)}
           </p>
           <EdgeEvidence edge={tooltip.edge} />
+          {tooltip.collapsedCount > 1 && (
+            <p className="text-[10px] text-muted-foreground">
+              ほか{tooltip.collapsedCount - 1}件のリンクが集約されています
+              (クリックで全件表示)
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-1">
@@ -950,7 +927,9 @@ type ResponseRelationGraphCanvasProps = {
   edges: GraphEdge[];
   denseClusters: DenseCluster[];
   openResponseIds: Set<string>;
-  onSelectEdge: (edge: GraphEdge) => void;
+  /** Fired with every original edge collapsed onto the activated line (a
+   * single-element array when the line represents just one real edge). */
+  onSelectEdge: (edges: GraphEdge[]) => void;
   onSelectResponse: (responseId: string) => void;
   /** Called (in addition to `onSelectResponse`) when a merged node
    * representing more than one response is activated, so the sidebar can
@@ -1218,6 +1197,7 @@ export function ResponseRelationGraphCanvas({
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.k})`}>
           {layoutLinks.map((link) => {
             const edge = link.edge;
+            const collapsedEdges = link.collapsedEdges;
             const source = link.source;
             const target = link.target;
             const title = edgeTitle(edge);
@@ -1240,12 +1220,12 @@ export function ResponseRelationGraphCanvas({
                   aria-label={`リンク ${title}`}
                   onClick={(event) => {
                     event.preventDefault();
-                    onSelectEdge(edge);
+                    onSelectEdge(collapsedEdges);
                   }}
                   onKeyDown={(event) => {
                     if (event.key !== " ") return;
                     event.preventDefault();
-                    onSelectEdge(edge);
+                    onSelectEdge(collapsedEdges);
                   }}
                   onFocus={() => {
                     const midX = (source.x + target.x) / 2;
@@ -1257,6 +1237,7 @@ export function ResponseRelationGraphCanvas({
                     setTooltip({
                       kind: "edge",
                       edge,
+                      collapsedCount: collapsedEdges.length,
                       x: screen.x,
                       y: screen.y,
                     });
@@ -1270,6 +1251,7 @@ export function ResponseRelationGraphCanvas({
                     setTooltip({
                       kind: "edge",
                       edge,
+                      collapsedCount: collapsedEdges.length,
                       x: event.clientX,
                       y: event.clientY,
                     });
@@ -1278,6 +1260,7 @@ export function ResponseRelationGraphCanvas({
                     setTooltip({
                       kind: "edge",
                       edge,
+                      collapsedCount: collapsedEdges.length,
                       x: event.clientX,
                       y: event.clientY,
                     })
@@ -1723,7 +1706,10 @@ function FloatingResponseWindow({
 }
 
 type FloatingEdgeWindowProps = {
-  edge: GraphEdge;
+  /** Every original edge collapsed onto the activated line, shown as
+   * separate entries — never merged into one, so evidence is never
+   * attributed to a pair it wasn't actually found for. */
+  edges: GraphEdge[];
   size: WindowSize;
   position: { x: number; y: number };
   zIndex: number;
@@ -1736,7 +1722,7 @@ type FloatingEdgeWindowProps = {
 };
 
 function FloatingEdgeWindow({
-  edge,
+  edges,
   size,
   position,
   zIndex,
@@ -1747,9 +1733,14 @@ function FloatingEdgeWindow({
   onResize,
   onSelectResponse,
 }: FloatingEdgeWindowProps) {
+  const firstEdge = edges[0];
+  const title =
+    edges.length <= 1 && firstEdge
+      ? `リンク根拠 ${responseShortId(firstEdge.responseIdA)} / ${responseShortId(firstEdge.responseIdB)}`
+      : `リンク根拠 (${edges.length}件を集約表示)`;
   return (
     <FloatingWindow
-      title={`リンク根拠 ${responseShortId(edge.responseIdA)} / ${responseShortId(edge.responseIdB)}`}
+      title={title}
       closeLabel="リンク根拠ウィンドウを閉じる"
       resizeLabel="リンク根拠ウィンドウのサイズを変更"
       size={size}
@@ -1761,25 +1752,33 @@ function FloatingEdgeWindow({
       onMove={onMove}
       onResize={onResize}
     >
-      <EdgeEvidence edge={edge} />
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onSelectResponse(edge.responseIdA)}
-        >
-          Aを表示
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onSelectResponse(edge.responseIdB)}
-        >
-          Bを表示
-        </Button>
-      </div>
+      {edges.map((edge) => (
+        <div key={edgeKey(edge)} className="space-y-2 rounded-md border p-2">
+          <p className="break-all font-mono text-[10px] text-muted-foreground">
+            {responseShortId(edge.responseIdA)} /{" "}
+            {responseShortId(edge.responseIdB)}
+          </p>
+          <EdgeEvidence edge={edge} />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onSelectResponse(edge.responseIdA)}
+            >
+              Aを表示
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onSelectResponse(edge.responseIdB)}
+            >
+              Bを表示
+            </Button>
+          </div>
+        </div>
+      ))}
     </FloatingWindow>
   );
 }
@@ -1793,7 +1792,7 @@ type OpenResponseWindow = {
 
 type OpenEdgeWindow = {
   key: string;
-  edge: GraphEdge;
+  edges: GraphEdge[];
   position: { x: number; y: number };
   size: WindowSize;
   zIndex: number;
@@ -1967,14 +1966,17 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
     );
   };
 
-  const openEdgeWindow = (edge: GraphEdge) => {
-    const key = edgeKey(edge);
+  const openEdgeWindow = (edges: GraphEdge[]) => {
+    // The rendered line's identity is the set of original edges it
+    // collapsed (order-independent), not any single member edge's ids —
+    // this keeps reopening the same line reusing its existing window.
+    const key = edges.map(edgeKey).sort().join("|");
     const nextZ = ++zIndexCounterRef.current;
     setOpenEdgeWindows((current) => {
       const existing = current.find((win) => win.key === key);
       if (existing) {
         return current.map((win) =>
-          win.key === key ? { ...win, edge, zIndex: nextZ } : win,
+          win.key === key ? { ...win, edges, zIndex: nextZ } : win,
         );
       }
       const position = cascadeWindowPosition(
@@ -1985,7 +1987,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
         ...current,
         {
           key,
-          edge,
+          edges,
           position,
           size: defaultEdgeWindowSize,
           zIndex: nextZ,
@@ -2142,7 +2144,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
       {openEdgeWindows.map((win) => (
         <FloatingEdgeWindow
           key={win.key}
-          edge={win.edge}
+          edges={win.edges}
           size={win.size}
           position={win.position}
           zIndex={win.zIndex}
