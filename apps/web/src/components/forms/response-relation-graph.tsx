@@ -572,37 +572,39 @@ export function ResponseRelationGraphCanvas({
     };
   };
 
-  const graphToClientPoint = (x: number, y: number) => {
+  const graphToClientPoint = (x: number, y: number, forCamera = camera) => {
     const bounds = svgRef.current?.getBoundingClientRect();
     const left = bounds?.left ?? 0;
     const top = bounds?.top ?? 0;
     return {
-      x: left + camera.x + x * camera.k,
-      y: top + camera.y + y * camera.k,
+      x: left + forCamera.x + x * forCamera.k,
+      y: top + forCamera.y + y * forCamera.k,
     };
   };
 
-  const keepPointVisible = (x: number, y: number) => {
+  // Computes the camera position needed to keep a graph point visible
+  // (within a margin), without going through setCamera's async updater —
+  // callers need the resulting camera synchronously to also reposition the
+  // focus tooltip in the same event handler.
+  const cameraKeepingPointVisible = (x: number, y: number) => {
     const bounds = svgRef.current?.getBoundingClientRect();
-    if (!bounds) return;
-    setCamera((current) => {
-      const screenX = x * current.k + current.x;
-      const screenY = y * current.k + current.y;
-      let nextX = current.x;
-      let nextY = current.y;
-      if (screenX < graphFocusMargin) {
-        nextX = current.x + (graphFocusMargin - screenX);
-      } else if (screenX > bounds.width - graphFocusMargin) {
-        nextX = current.x - (screenX - (bounds.width - graphFocusMargin));
-      }
-      if (screenY < graphFocusMargin) {
-        nextY = current.y + (graphFocusMargin - screenY);
-      } else if (screenY > bounds.height - graphFocusMargin) {
-        nextY = current.y - (screenY - (bounds.height - graphFocusMargin));
-      }
-      if (nextX === current.x && nextY === current.y) return current;
-      return { ...current, x: nextX, y: nextY };
-    });
+    if (!bounds) return camera;
+    const screenX = x * camera.k + camera.x;
+    const screenY = y * camera.k + camera.y;
+    let nextX = camera.x;
+    let nextY = camera.y;
+    if (screenX < graphFocusMargin) {
+      nextX = camera.x + (graphFocusMargin - screenX);
+    } else if (screenX > bounds.width - graphFocusMargin) {
+      nextX = camera.x - (screenX - (bounds.width - graphFocusMargin));
+    }
+    if (screenY < graphFocusMargin) {
+      nextY = camera.y + (graphFocusMargin - screenY);
+    } else if (screenY > bounds.height - graphFocusMargin) {
+      nextY = camera.y - (screenY - (bounds.height - graphFocusMargin));
+    }
+    if (nextX === camera.x && nextY === camera.y) return camera;
+    return { ...camera, x: nextX, y: nextY };
   };
 
   const handleWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
@@ -776,8 +778,9 @@ export function ResponseRelationGraphCanvas({
                     const midX = (source.x + target.x) / 2;
                     const midY = (source.y + target.y) / 2;
                     setHoveredEdgeKey(edgeKey(edge));
-                    keepPointVisible(midX, midY);
-                    const screen = graphToClientPoint(midX, midY);
+                    const nextCamera = cameraKeepingPointVisible(midX, midY);
+                    setCamera(nextCamera);
+                    const screen = graphToClientPoint(midX, midY, nextCamera);
                     setTooltip({
                       kind: "edge",
                       edge,
@@ -843,8 +846,16 @@ export function ResponseRelationGraphCanvas({
                   onSelectResponse(node.responseId);
                 }}
                 onFocus={() => {
-                  keepPointVisible(layoutNode.x, layoutNode.y);
-                  const screen = graphToClientPoint(layoutNode.x, layoutNode.y);
+                  const nextCamera = cameraKeepingPointVisible(
+                    layoutNode.x,
+                    layoutNode.y,
+                  );
+                  setCamera(nextCamera);
+                  const screen = graphToClientPoint(
+                    layoutNode.x,
+                    layoutNode.y,
+                    nextCamera,
+                  );
                   setTooltip({ kind: "node", node, x: screen.x, y: screen.y });
                 }}
                 onBlur={() => setTooltip(null)}
@@ -962,6 +973,51 @@ function ResponseRelationGraphSidebar({
   );
 }
 
+function useFloatingWindowDrag(
+  position: { x: number; y: number },
+  onMove: (position: { x: number; y: number }) => void,
+) {
+  const dragRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+
+  const onHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: position.x,
+      startY: position.y,
+    };
+  };
+
+  const onHeaderPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    onMove({
+      x: drag.startX + (event.clientX - drag.startClientX),
+      y: drag.startY + (event.clientY - drag.startClientY),
+    });
+  };
+
+  const onHeaderPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+  };
+
+  return { onHeaderPointerDown, onHeaderPointerMove, onHeaderPointerUp };
+}
+
 type FloatingResponseWindowProps = {
   formId: string;
   responseId: string;
@@ -983,48 +1039,7 @@ function FloatingResponseWindow({
   onFocus,
   onMove,
 }: FloatingResponseWindowProps) {
-  const dragRef = useRef<{
-    pointerId: number;
-    startClientX: number;
-    startClientY: number;
-    startX: number;
-    startY: number;
-  } | null>(null);
-
-  const handleHeaderPointerDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    if (event.button !== 0) return;
-    onFocus();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragRef.current = {
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startX: position.x,
-      startY: position.y,
-    };
-  };
-
-  const handleHeaderPointerMove = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    onMove({
-      x: drag.startX + (event.clientX - drag.startClientX),
-      y: drag.startY + (event.clientY - drag.startClientY),
-    });
-  };
-
-  const handleHeaderPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    dragRef.current = null;
-  };
+  const drag = useFloatingWindowDrag(position, onMove);
 
   return (
     <div
@@ -1037,10 +1052,10 @@ function FloatingResponseWindow({
           "flex cursor-grab items-center justify-between rounded-t-lg border-b px-3 py-2 active:cursor-grabbing",
           isFront ? "bg-muted" : "bg-muted/50",
         ].join(" ")}
-        onPointerDown={handleHeaderPointerDown}
-        onPointerMove={handleHeaderPointerMove}
-        onPointerUp={handleHeaderPointerUp}
-        onPointerCancel={handleHeaderPointerUp}
+        onPointerDown={drag.onHeaderPointerDown}
+        onPointerMove={drag.onHeaderPointerMove}
+        onPointerUp={drag.onHeaderPointerUp}
+        onPointerCancel={drag.onHeaderPointerUp}
       >
         <span className="truncate font-mono text-xs text-muted-foreground">
           回答 {responseShortId(responseId)}
@@ -1063,8 +1078,94 @@ function FloatingResponseWindow({
   );
 }
 
+type FloatingEdgeWindowProps = {
+  edge: GraphEdge;
+  position: { x: number; y: number };
+  zIndex: number;
+  isFront: boolean;
+  onClose: () => void;
+  onFocus: () => void;
+  onMove: (position: { x: number; y: number }) => void;
+  onSelectResponse: (responseId: string) => void;
+};
+
+function FloatingEdgeWindow({
+  edge,
+  position,
+  zIndex,
+  isFront,
+  onClose,
+  onFocus,
+  onMove,
+  onSelectResponse,
+}: FloatingEdgeWindowProps) {
+  const drag = useFloatingWindowDrag(position, onMove);
+
+  return (
+    <div
+      className="fixed w-[360px] max-w-[calc(100vw-2rem)] rounded-lg border bg-card shadow-xl"
+      style={{ left: position.x, top: position.y, zIndex }}
+      onPointerDownCapture={onFocus}
+    >
+      <div
+        className={[
+          "flex cursor-grab items-center justify-between rounded-t-lg border-b px-3 py-2 active:cursor-grabbing",
+          isFront ? "bg-muted" : "bg-muted/50",
+        ].join(" ")}
+        onPointerDown={drag.onHeaderPointerDown}
+        onPointerMove={drag.onHeaderPointerMove}
+        onPointerUp={drag.onHeaderPointerUp}
+        onPointerCancel={drag.onHeaderPointerUp}
+      >
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          リンク根拠 {responseShortId(edge.responseIdA)} /{" "}
+          {responseShortId(edge.responseIdB)}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0"
+          aria-label="リンク根拠ウィンドウを閉じる"
+          onClick={onClose}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="max-h-[70vh] space-y-3 overflow-auto p-3">
+        <EdgeEvidence edge={edge} />
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onSelectResponse(edge.responseIdA)}
+          >
+            Aを表示
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onSelectResponse(edge.responseIdB)}
+          >
+            Bを表示
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type OpenResponseWindow = {
   responseId: string;
+  position: { x: number; y: number };
+  zIndex: number;
+};
+
+type OpenEdgeWindow = {
+  key: string;
+  edge: GraphEdge;
   position: { x: number; y: number };
   zIndex: number;
 };
@@ -1074,6 +1175,7 @@ const windowInitialPosition = { x: 80, y: 96 };
 
 export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   const [openWindows, setOpenWindows] = useState<OpenResponseWindow[]>([]);
+  const [openEdgeWindows, setOpenEdgeWindows] = useState<OpenEdgeWindow[]>([]);
   const zIndexCounterRef = useRef(1);
   const [selectedCluster, setSelectedCluster] = useState<DenseCluster | null>(
     null,
@@ -1089,13 +1191,6 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   });
 
   const graph = graphQuery.data;
-  const nodesById = useMemo(
-    () =>
-      new Map(
-        (graph?.nodes ?? []).map((node) => [node.responseId, node] as const),
-      ),
-    [graph?.nodes],
-  );
 
   const openResponseWindow = (responseId: string) => {
     const nextZ = ++zIndexCounterRef.current;
@@ -1106,7 +1201,8 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           win.responseId === responseId ? { ...win, zIndex: nextZ } : win,
         );
       }
-      const offset = current.length * windowCascadeStep;
+      const offset =
+        (current.length + openEdgeWindows.length) * windowCascadeStep;
       return [
         ...current,
         {
@@ -1147,28 +1243,61 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
     );
   };
 
+  const openEdgeWindow = (edge: GraphEdge) => {
+    const key = edgeKey(edge);
+    const nextZ = ++zIndexCounterRef.current;
+    setOpenEdgeWindows((current) => {
+      const existing = current.find((win) => win.key === key);
+      if (existing) {
+        return current.map((win) =>
+          win.key === key ? { ...win, edge, zIndex: nextZ } : win,
+        );
+      }
+      const offset = (current.length + openWindows.length) * windowCascadeStep;
+      return [
+        ...current,
+        {
+          key,
+          edge,
+          position: {
+            x: windowInitialPosition.x + offset,
+            y: windowInitialPosition.y + offset,
+          },
+          zIndex: nextZ,
+        },
+      ];
+    });
+  };
+
+  const closeEdgeWindow = (key: string) => {
+    setOpenEdgeWindows((current) => current.filter((win) => win.key !== key));
+  };
+
+  const focusEdgeWindow = (key: string) => {
+    const nextZ = ++zIndexCounterRef.current;
+    setOpenEdgeWindows((current) =>
+      current.map((win) => (win.key === key ? { ...win, zIndex: nextZ } : win)),
+    );
+  };
+
+  const moveEdgeWindow = (key: string, position: { x: number; y: number }) => {
+    setOpenEdgeWindows((current) =>
+      current.map((win) => (win.key === key ? { ...win, position } : win)),
+    );
+  };
+
   const openResponseIds = useMemo(
     () => new Set(openWindows.map((win) => win.responseId)),
     [openWindows],
   );
 
-  const frontZIndex = useMemo(
-    () =>
-      openWindows.length === 0
-        ? null
-        : Math.max(...openWindows.map((win) => win.zIndex)),
-    [openWindows],
-  );
-
-  const selectEdgeResponse = (edge: GraphEdge) => {
-    const leftNode = nodesById.get(edge.responseIdA);
-    const rightNode = nodesById.get(edge.responseIdB);
-    const nextResponseId =
-      leftNode && rightNode && leftNode.submittedAt < rightNode.submittedAt
-        ? rightNode.responseId
-        : edge.responseIdA;
-    openResponseWindow(nextResponseId);
-  };
+  const frontZIndex = useMemo(() => {
+    const zIndexes = [
+      ...openWindows.map((win) => win.zIndex),
+      ...openEdgeWindows.map((win) => win.zIndex),
+    ];
+    return zIndexes.length === 0 ? null : Math.max(...zIndexes);
+  }, [openWindows, openEdgeWindows]);
 
   if (graphQuery.isLoading) {
     return (
@@ -1240,7 +1369,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           edges={graph.edges}
           denseClusters={graph.denseClusters}
           openResponseIds={openResponseIds}
-          onSelectEdge={selectEdgeResponse}
+          onSelectEdge={openEdgeWindow}
           onSelectResponse={openResponseWindow}
         />
         <ResponseRelationGraphSidebar
@@ -1262,6 +1391,20 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           onClose={() => closeResponseWindow(win.responseId)}
           onFocus={() => focusResponseWindow(win.responseId)}
           onMove={(position) => moveResponseWindow(win.responseId, position)}
+        />
+      ))}
+
+      {openEdgeWindows.map((win) => (
+        <FloatingEdgeWindow
+          key={win.key}
+          edge={win.edge}
+          position={win.position}
+          zIndex={win.zIndex}
+          isFront={win.zIndex === frontZIndex}
+          onClose={() => closeEdgeWindow(win.key)}
+          onFocus={() => focusEdgeWindow(win.key)}
+          onMove={(position) => moveEdgeWindow(win.key, position)}
+          onSelectResponse={openResponseWindow}
         />
       ))}
     </div>

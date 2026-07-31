@@ -598,4 +598,59 @@ describe("ResponseRelationGraph", () => {
     act(() => graphRoot.unmount());
     graphContainer.remove();
   });
+
+  it("opens a persistent edge evidence window on edge click, reachable without hover", () => {
+    const nodes = [graphNode(0), graphNode(1)];
+    const [nodeA, nodeB] = nodes;
+    if (!nodeA || !nodeB) {
+      throw new Error("Expected graph node fixtures to be present");
+    }
+    const edge = graphEdge(nodeA.responseId, nodeB.responseId);
+    const { graphContainer, graphRoot } = renderGraph(
+      graphResponse(nodes, [edge]),
+    );
+
+    const edgeHitArea = getRequiredElement(
+      graphContainer,
+      `a[href="#relation-${edge.responseIdA}:${edge.responseIdB}"] line[stroke-width="18"]`,
+      isSvgLineElement,
+      "edge hit area",
+    );
+
+    expect(
+      graphContainer.querySelector(
+        "button[aria-label='リンク根拠ウィンドウを閉じる']",
+      ),
+    ).toBeNull();
+
+    act(() => {
+      fireEvent.click(edgeHitArea);
+    });
+
+    expect(
+      graphContainer.querySelector(
+        "button[aria-label='リンク根拠ウィンドウを閉じる']",
+      ),
+    ).not.toBeNull();
+    expect(graphContainer.textContent).toContain("端末特徴一致");
+
+    const showAButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent === "Aを表示");
+    if (!showAButton) {
+      throw new Error("Expected the 'Aを表示' button to be present");
+    }
+
+    act(() => {
+      fireEvent.click(showAButton);
+    });
+
+    expect(
+      graphContainer.querySelector("[data-testid='response-detail']")
+        ?.textContent,
+    ).toBe(nodeA.responseId);
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
+  });
 });
