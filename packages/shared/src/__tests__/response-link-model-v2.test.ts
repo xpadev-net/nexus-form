@@ -27,7 +27,7 @@ const DEVICE_IMAGE_COMPONENTS: Array<[string, string]> = [
 function deviceImageResponse(
   id: string,
   sharesDeviceImage: boolean,
-  options: { v6?: string } = {},
+  options: { v6?: string; visitorId?: string } = {},
 ): ResponseLinkAnalysisResponse {
   return {
     id,
@@ -50,6 +50,16 @@ function deviceImageResponse(
               fingerprintType: "telemetry",
               componentName: "v6",
               componentValueHash: options.v6,
+            },
+          ]
+        : []),
+      ...(options.visitorId
+        ? [
+            {
+              responseId: id,
+              fingerprintType: "fingerprintjs",
+              componentName: "visitorId",
+              componentValueHash: options.visitorId,
             },
           ]
         : []),
@@ -227,6 +237,48 @@ describe("response-link-model-v2", () => {
     expect(groups[0]).toMatchObject({
       responseIds: ["A", "B"],
       technicalConfidence: "STRONG",
+    });
+  });
+
+  it("excludes an aggregate-only link from strongLinkCount even when it sits inside an identity-anchored group", () => {
+    const populationSize = 40;
+    const responses: ResponseLinkAnalysisResponse[] = [
+      // A-B share a v6 identity anchor; A-C share a visitorId identity
+      // anchor. B-C only share the coincidental device image, with no
+      // identity anchor of their own.
+      deviceImageResponse("A", true, {
+        v6: "v6-shared",
+        visitorId: "visitor-ac",
+      }),
+      deviceImageResponse("B", true, { v6: "v6-shared" }),
+      deviceImageResponse("C", true, { visitorId: "visitor-ac" }),
+    ];
+    for (let i = 3; i < populationSize; i += 1) {
+      responses.push(deviceImageResponse(`r${i}`, false));
+    }
+    const stats = buildRarityStats(responses);
+
+    const [a, b, c] = responses;
+    if (!a || !b || !c) throw new Error("test fixture missing responses");
+    const linkAB = evaluateResponsePairLink(a, b, stats);
+    const linkAC = evaluateResponsePairLink(a, c, stats);
+    const linkBC = evaluateResponsePairLink(b, c, stats);
+
+    expect(isAggregateOnlyLink(linkAB)).toBe(false);
+    expect(isAggregateOnlyLink(linkAC)).toBe(false);
+    expect(linkBC.strength).toBe("STRONG");
+    expect(isAggregateOnlyLink(linkBC)).toBe(true);
+
+    const groups = buildResponseSuspicionGroups([linkAB, linkAC, linkBC]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      responseIds: ["A", "B", "C"],
+      technicalConfidence: "STRONG",
+      // Only the two identity-anchored links (A-B, A-C) should count as
+      // strong; the aggregate-only B-C link must be reported as support
+      // even though its raw strength is STRONG.
+      strongLinkCount: 2,
+      supportLinkCount: 1,
     });
   });
 });

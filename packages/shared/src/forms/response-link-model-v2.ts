@@ -1,6 +1,11 @@
 import { buildFingerprintComponentKey } from "../fingerprint";
 
-export const RESPONSE_LINK_MODEL_VERSION = "response-link-v2-rarity-shadow";
+// Bumped when this fix shipped: the API only surfaces COMPLETED runs whose
+// modelVersion matches this constant, so bumping it makes previously
+// persisted runs (computed under the old over-merging logic) stop being
+// served as "the current suspicion groups" until they are recalculated.
+export const RESPONSE_LINK_MODEL_VERSION =
+  "response-link-v2-rarity-shadow-agg-tier";
 
 export const RESPONSE_LINK_STRENGTHS = [
   "NONE",
@@ -308,18 +313,24 @@ export function buildRarityStats(
     }
   }
 
-  // Weight each key's share by how many responses actually reported it, so a
-  // key with only a handful of observations (e.g. a rarely-collected signal
-  // that happens to collide twice) can't dominate the average and make a
-  // genuinely diverse population look artificially homogeneous.
-  let totalMaxDf = 0;
+  // Weight each key's excess-duplication ratio by how many responses could
+  // possibly have collided for it, so a key with only a handful of
+  // observations (e.g. a rarely-collected signal that happens to collide
+  // twice) can't dominate the average and make a genuinely diverse
+  // population look artificially homogeneous. Using (maxDf - 1) / (population
+  // - 1) rather than the raw share means a population where every value is
+  // unique (maxDf === 1 for every key) yields exactly 0, so
+  // populationDiversityFactor is exactly 1 rather than merely close to it.
+  let totalDuplicateWeight = 0;
   let totalWeight = 0;
   for (const [key, populationCount] of signalPopulation) {
-    if (populationCount <= 0) continue;
-    totalMaxDf += maxDocumentFrequencyByKey.get(key) ?? 0;
-    totalWeight += populationCount;
+    if (populationCount <= 1) continue;
+    const maxDf = maxDocumentFrequencyByKey.get(key) ?? 0;
+    totalDuplicateWeight += Math.max(0, maxDf - 1);
+    totalWeight += populationCount - 1;
   }
-  const averageMaxShare = totalWeight > 0 ? totalMaxDf / totalWeight : 0;
+  const averageMaxShare =
+    totalWeight > 0 ? totalDuplicateWeight / totalWeight : 0;
   const populationDiversityFactor = Math.max(
     MIN_POPULATION_DIVERSITY_FACTOR,
     1 - averageMaxShare,

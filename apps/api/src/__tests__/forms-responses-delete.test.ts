@@ -407,7 +407,7 @@ describe("response deletion API", () => {
           {
             id: "run-1",
             formId: "form-1",
-            modelVersion: "response-link-v2-rarity-shadow",
+            modelVersion: "response-link-v2-rarity-shadow-agg-tier",
             statsVersion: "stats-1",
             populationSize: 2,
             status: "COMPLETED",
@@ -487,7 +487,7 @@ describe("response deletion API", () => {
           {
             id: "run-1",
             formId: "form-1",
-            modelVersion: "response-link-v2-rarity-shadow",
+            modelVersion: "response-link-v2-rarity-shadow-agg-tier",
             statsVersion: "stats-1",
             populationSize: 3,
             status: "COMPLETED",
@@ -563,7 +563,7 @@ describe("response deletion API", () => {
           {
             id: "run-1",
             formId: "form-1",
-            modelVersion: "response-link-v2-rarity-shadow",
+            modelVersion: "response-link-v2-rarity-shadow-agg-tier",
             statsVersion: "stats-1",
             populationSize: 3,
             status: "COMPLETED",
@@ -626,7 +626,7 @@ describe("response deletion API", () => {
           {
             id: "run-1",
             formId: "form-1",
-            modelVersion: "response-link-v2-rarity-shadow",
+            modelVersion: "response-link-v2-rarity-shadow-agg-tier",
             statsVersion: "stats-1",
             populationSize: 3,
             status: "COMPLETED",
@@ -692,7 +692,7 @@ describe("response deletion API", () => {
           {
             id: "run-1",
             formId: "form-1",
-            modelVersion: "response-link-v2-rarity-shadow",
+            modelVersion: "response-link-v2-rarity-shadow-agg-tier",
             statsVersion: "stats-1",
             populationSize: 3,
             status: "COMPLETED",

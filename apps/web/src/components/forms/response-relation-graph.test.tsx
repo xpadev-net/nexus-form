@@ -510,7 +510,7 @@ describe("ResponseRelationGraph", () => {
         candidatePairLimitExceeded: false,
         completedAt: "2026-01-01T00:00:00.000Z",
         id: "run-1",
-        modelVersion: "response-link-v2-rarity-shadow",
+        modelVersion: "response-link-v2-rarity-shadow-agg-tier",
         populationSize: nodes.length,
         skippedCandidateBucketCount: 0,
         statsVersion: null,

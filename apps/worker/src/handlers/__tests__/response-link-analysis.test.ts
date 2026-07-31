@@ -297,7 +297,7 @@ describe("analyzeResponseLinks", () => {
           {
             column: "responseLinkAnalysisRun.modelVersion",
             type: "eq",
-            value: "response-link-v2-rarity-shadow",
+            value: "response-link-v2-rarity-shadow-agg-tier",
           },
           {
             column: "responseLinkAnalysisRun.status",

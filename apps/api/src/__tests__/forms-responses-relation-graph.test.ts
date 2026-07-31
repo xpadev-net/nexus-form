@@ -195,7 +195,7 @@ const completedRun = {
     candidatePairLimitExceeded: false,
     skippedCandidateBucketCount: 0,
   },
-  modelVersion: "response-link-v2-rarity-shadow",
+  modelVersion: "response-link-v2-rarity-shadow-agg-tier",
   populationSize: 5,
   statsVersion: "stats-1",
 };
