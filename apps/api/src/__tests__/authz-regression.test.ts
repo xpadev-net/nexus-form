@@ -936,6 +936,145 @@ describe("R15-C1: public submit persists linked security evidence", () => {
   );
 
   it(
+    "persists security exchange observations in FingerprintDetail for compatibility",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const schema = await import("@nexus-form/database/schema");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "q1",
+              children: [{ text: "Name" }],
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: {
+              allow_edit_responses: false,
+              require_fingerprint: true,
+            },
+          }),
+        }),
+      );
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+
+      const observationDigest = "a".repeat(64);
+      const securityReceiptToken = createSignedSecurityReceipt({
+        attemptId: "attempt-1",
+        digest: observationDigest,
+        expiresAt: Date.now() + 60_000,
+        formId: FORM_ID,
+        publicId: "test-public-id",
+      });
+      const securityEvidence = securityEvidenceTuples();
+      let insertedFingerprints: unknown;
+      const txInsert = vi.fn((table: unknown) => ({
+        values: vi.fn(async (values: unknown) => {
+          if (table === schema.fingerprintDetail) {
+            insertedFingerprints = values;
+          }
+        }),
+      }));
+      const txDelete = vi.fn(() => ({
+        where: vi.fn(async () => undefined),
+      }));
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                  collectionExpiresAt: new Date(Date.now() + 60_000),
+                  observationDigestJson: {
+                    d: observationDigest,
+                    e: securityEvidence,
+                  },
+                  serverContextJson: validSecurityServerContext(),
+                  consumedAt: null,
+                  finalizedAt: new Date(),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const txSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      txSpy.mockImplementation(async (fn) =>
+        fn({ delete: txDelete, insert: txInsert, select: txSelect }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            securityVerificationToken: securityReceiptToken,
+          }),
+        },
+      );
+
+      expect(res.status).toBe(201);
+      expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
+      expect(insertedFingerprints).toHaveLength(9);
+      expect(insertedFingerprints).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fingerprintType: "telemetry",
+            componentName: "v4",
+            componentValueHash: "hash-v4",
+          }),
+          expect.objectContaining({
+            fingerprintType: "browser",
+            componentName: "timezone",
+            componentValueHash: "0".repeat(64),
+          }),
+          expect.objectContaining({
+            fingerprintType: "browser",
+            componentName: "userAgent",
+            componentValueHash: "3".repeat(64),
+          }),
+          expect.objectContaining({
+            fingerprintType: "fingerprintjs",
+            componentName: "visitorId",
+            componentValueHash: "4".repeat(64),
+          }),
+          expect.objectContaining({
+            fingerprintType: "fingerprintjs",
+            componentName: "screen",
+            componentValueHash: "7".repeat(64),
+          }),
+        ]),
+      );
+      expect(txDelete).toHaveBeenCalledWith(
+        schema.fingerprintCollectionAttempt,
+      );
+      txSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
     "passes dual telemetry token candidates to the submit authorizer",
     async () => {
       const { db } = await import("@nexus-form/database");
