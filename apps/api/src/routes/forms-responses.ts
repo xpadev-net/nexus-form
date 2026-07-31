@@ -642,8 +642,11 @@ function strongerResponseLinkStrength<
 function canonicalizeForHash(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalizeForHash);
   if (value !== null && typeof value === "object") {
+    // Plain code-unit comparison, not localeCompare — the sort order must
+    // be identical across every environment/ICU configuration this runs in
+    // for the resulting hash to be deterministic.
     const sortedEntries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([key, entryValue]) => [key, canonicalizeForHash(entryValue)]);
     return Object.fromEntries(sortedEntries);
   }

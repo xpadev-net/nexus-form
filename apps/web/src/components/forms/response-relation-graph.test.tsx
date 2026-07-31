@@ -998,6 +998,12 @@ describe("ResponseRelationGraph", () => {
       expect.arrayContaining([nodeA.responseId, nodeB.responseId]),
     );
 
+    // The sidebar heading names this specific reason (duplicate answer
+    // content), not the generic dense-cluster heading it reuses the UI from.
+    expect(graphContainer.querySelector("aside h3")?.textContent).toBe(
+      "送信日時以外が同一の回答",
+    );
+
     act(() => graphRoot.unmount());
     graphContainer.remove();
   });

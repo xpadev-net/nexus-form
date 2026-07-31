@@ -244,15 +244,14 @@ function isStrongerEdge(candidate: GraphEdge, current: GraphEdge): boolean {
 /** Picks the strongest edge among several original edges that collapsed
  * onto the same pair of merged nodes, ordering ties by declaration order.
  * The pick is used only for the line's visual styling — every collapsed
- * edge is still shown, unmodified and separately, in its evidence popup. */
-function strongestOf(collapsedEdges: GraphEdge[]): GraphEdge {
+ * edge is still shown, unmodified and separately, in its evidence popup.
+ * Takes a non-empty tuple so the result is provably defined without a cast. */
+function strongestOf(collapsedEdges: [GraphEdge, ...GraphEdge[]]): GraphEdge {
   let strongest = collapsedEdges[0];
   for (const edge of collapsedEdges) {
-    if (!strongest || isStrongerEdge(edge, strongest)) strongest = edge;
+    if (isStrongerEdge(edge, strongest)) strongest = edge;
   }
-  // collapsedEdges is only ever built from a non-empty array (see
-  // useForceGraphLayout), so `strongest` is always defined here.
-  return strongest as GraphEdge;
+  return strongest;
 }
 
 function edgeKey(edge: GraphEdge): string {
@@ -637,7 +636,11 @@ function useForceGraphLayout(
     // found for) so the popup can later show each real edge separately.
     const collapsedEdgesByPair = new Map<
       string,
-      { edges: GraphEdge[]; sourceId: string; targetId: string }
+      {
+        edges: [GraphEdge, ...GraphEdge[]];
+        sourceId: string;
+        targetId: string;
+      }
     >();
     for (const edge of edges) {
       const sourceId = responseIdToRepresentative.get(edge.responseIdA);
@@ -897,6 +900,7 @@ function CursorTooltip({ tooltip }: { tooltip: TooltipState }) {
           <p className="break-all font-mono text-[10px] text-muted-foreground">
             {responseShortId(tooltip.edge.responseIdA)} /{" "}
             {responseShortId(tooltip.edge.responseIdB)}
+            {tooltip.collapsedCount > 1 ? " (代表)" : ""}
           </p>
           <EdgeEvidence edge={tooltip.edge} />
           {tooltip.collapsedCount > 1 && (
@@ -1430,7 +1434,11 @@ function ResponseRelationGraphSidebar({
 
       {selectedCluster && (
         <div className="rounded-md border p-3">
-          <h3 className="text-sm font-semibold">クラスタ内回答</h3>
+          <h3 className="text-sm font-semibold">
+            {selectedCluster.reasonCode === "duplicate-content"
+              ? reasonLabel(selectedCluster.reasonCode)
+              : "クラスタ内回答"}
+          </h3>
           <div className="mt-2 max-h-64 space-y-1 overflow-auto">
             {selectedCluster.responseIds.map((responseId) => (
               <button
