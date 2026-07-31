@@ -1,5 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  findFormsNeedingScheduleProcessing,
+  processMultipleFormSchedules,
+} from "../schedule-processor";
 
 const mocks = vi.hoisted(() => {
   const schema = {
@@ -57,15 +61,19 @@ vi.mock("../../queues", () => ({
   })),
 }));
 vi.mock("../../sentry", () => ({ captureError: mocks.captureError }));
-const mockFindFormsNeedingScheduleProcessing = vi.fn(
-  async () => [] as string[],
-);
-const mockProcessMultipleFormSchedules = vi.fn(async () => ({}));
+const mockFindFormsNeedingScheduleProcessing = vi.fn<
+  typeof findFormsNeedingScheduleProcessing
+>(async () => []);
+const mockProcessMultipleFormSchedules = vi.fn<
+  typeof processMultipleFormSchedules
+>(async () => ({}));
 vi.mock("../schedule-processor", () => ({
-  findFormsNeedingScheduleProcessing: (...args: unknown[]) =>
-    mockFindFormsNeedingScheduleProcessing(...args),
-  processMultipleFormSchedules: (...args: unknown[]) =>
-    mockProcessMultipleFormSchedules(...args),
+  findFormsNeedingScheduleProcessing: (
+    ...args: Parameters<typeof mockFindFormsNeedingScheduleProcessing>
+  ) => mockFindFormsNeedingScheduleProcessing(...args),
+  processMultipleFormSchedules: (
+    ...args: Parameters<typeof mockProcessMultipleFormSchedules>
+  ) => mockProcessMultipleFormSchedules(...args),
 }));
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
