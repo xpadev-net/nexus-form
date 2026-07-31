@@ -724,11 +724,15 @@ describe("ResponseRelationGraph", () => {
         window.dispatchEvent(new Event("resize"));
       });
 
+      // With a 400x300 viewport and the response window's own 420px width
+      // (shrunk to fit within the viewport minus its 32px margin), only 32px
+      // of horizontal slack remains; vertically only the header height
+      // (48px) needs to stay on-screen.
       expect(Number.parseFloat(windowElement.style.left)).toBeLessThanOrEqual(
-        200,
+        32,
       );
       expect(Number.parseFloat(windowElement.style.top)).toBeLessThanOrEqual(
-        100,
+        252,
       );
 
       act(() => graphRoot.unmount());

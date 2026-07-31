@@ -1174,7 +1174,7 @@ function FloatingResponseWindow({
     <FloatingWindow
       title={`回答 ${responseShortId(responseId)}`}
       closeLabel="回答ウィンドウを閉じる"
-      width={420}
+      width={responseWindowWidth}
       position={position}
       zIndex={zIndex}
       isFront={isFront}
@@ -1212,7 +1212,7 @@ function FloatingEdgeWindow({
     <FloatingWindow
       title={`リンク根拠 ${responseShortId(edge.responseIdA)} / ${responseShortId(edge.responseIdB)}`}
       closeLabel="リンク根拠ウィンドウを閉じる"
-      width={360}
+      width={edgeWindowWidth}
       position={position}
       zIndex={zIndex}
       isFront={isFront}
@@ -1258,44 +1258,64 @@ type OpenEdgeWindow = {
 
 const windowCascadeStep = 32;
 const windowInitialPosition = { x: 80, y: 96 };
-// Keep at least this much of a window's header on-screen so its drag handle
-// and close button always stay reachable, however far it's cascaded or moved.
-const windowHeaderReserve = 200;
+const responseWindowWidth = 420;
+const edgeWindowWidth = 360;
+// Matches the `max-w-[calc(100vw-2rem)]` on FloatingWindow: on a narrow
+// viewport the window itself shrinks to fit within this margin.
+const windowViewportMargin = 32;
+// Height reserved so the header row (drag handle + close button) stays
+// reachable even if the window's body would otherwise run off the bottom.
+const windowHeaderHeight = 48;
 
 function viewportSize(): { width: number; height: number } {
   if (typeof window === "undefined") return { width: 1280, height: 800 };
   return { width: window.innerWidth, height: window.innerHeight };
 }
 
-function clampWindowPosition(position: { x: number; y: number }): {
-  x: number;
-  y: number;
-} {
+/**
+ * Clamps a window's top-left position so its header — including the
+ * right-aligned close button — stays fully within the viewport, taking the
+ * window's actual (possibly viewport-shrunk, per `max-w-[calc(100vw-2rem)]`)
+ * rendered width into account rather than a fixed margin.
+ */
+function clampWindowPosition(
+  position: { x: number; y: number },
+  windowWidth: number,
+): { x: number; y: number } {
   const { width, height } = viewportSize();
+  const renderedWidth = Math.min(
+    windowWidth,
+    Math.max(0, width - windowViewportMargin),
+  );
   return {
-    x: clamp(position.x, 0, Math.max(0, width - windowHeaderReserve)),
-    y: clamp(position.y, 0, Math.max(0, height - windowHeaderReserve)),
+    x: clamp(position.x, 0, Math.max(0, width - renderedWidth)),
+    y: clamp(position.y, 0, Math.max(0, height - windowHeaderHeight)),
   };
 }
 
 // Cascades new windows diagonally without ever letting the offset grow
 // past what the current viewport can keep reachable — once it would run
 // out of room, it wraps back to the start instead of drifting off-screen.
-function cascadeWindowPosition(index: number): { x: number; y: number } {
+function cascadeWindowPosition(
+  index: number,
+  windowWidth: number,
+): { x: number; y: number } {
   const { width, height } = viewportSize();
   const maxStepsX = Math.floor(
-    (width - windowInitialPosition.x - windowHeaderReserve) / windowCascadeStep,
+    (width - windowInitialPosition.x - windowWidth) / windowCascadeStep,
   );
   const maxStepsY = Math.floor(
-    (height - windowInitialPosition.y - windowHeaderReserve) /
-      windowCascadeStep,
+    (height - windowInitialPosition.y - windowHeaderHeight) / windowCascadeStep,
   );
   const maxSteps = Math.max(1, Math.min(maxStepsX, maxStepsY));
   const step = index % maxSteps;
-  return clampWindowPosition({
-    x: windowInitialPosition.x + step * windowCascadeStep,
-    y: windowInitialPosition.y + step * windowCascadeStep,
-  });
+  return clampWindowPosition(
+    {
+      x: windowInitialPosition.x + step * windowCascadeStep,
+      y: windowInitialPosition.y + step * windowCascadeStep,
+    },
+    windowWidth,
+  );
 }
 
 export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
@@ -1326,13 +1346,13 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
       setOpenWindows((current) =>
         current.map((win) => ({
           ...win,
-          position: clampWindowPosition(win.position),
+          position: clampWindowPosition(win.position, responseWindowWidth),
         })),
       );
       setOpenEdgeWindows((current) =>
         current.map((win) => ({
           ...win,
-          position: clampWindowPosition(win.position),
+          position: clampWindowPosition(win.position, edgeWindowWidth),
         })),
       );
     };
@@ -1351,6 +1371,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
       }
       const position = cascadeWindowPosition(
         current.length + openEdgeWindows.length,
+        responseWindowWidth,
       );
       return [
         ...current,
@@ -1385,7 +1406,10 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
     setOpenWindows((current) =>
       current.map((win) =>
         win.responseId === responseId
-          ? { ...win, position: clampWindowPosition(position) }
+          ? {
+              ...win,
+              position: clampWindowPosition(position, responseWindowWidth),
+            }
           : win,
       ),
     );
@@ -1403,6 +1427,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
       }
       const position = cascadeWindowPosition(
         current.length + openWindows.length,
+        edgeWindowWidth,
       );
       return [
         ...current,
@@ -1431,7 +1456,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
     setOpenEdgeWindows((current) =>
       current.map((win) =>
         win.key === key
-          ? { ...win, position: clampWindowPosition(position) }
+          ? { ...win, position: clampWindowPosition(position, edgeWindowWidth) }
           : win,
       ),
     );
