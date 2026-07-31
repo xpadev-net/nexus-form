@@ -60,11 +60,17 @@ export async function processFormSchedule(
         })
         .from(form)
         .where(eq(form.id, formId))
-        .for("update")
+        .for("update", { skipLocked: true })
         .limit(1);
 
       if (!foundForm) {
-        throw new Error("Form not found");
+        return {
+          snapshotSchedules,
+          processed: false,
+          statusChanged: false,
+          newStatus: "DRAFT" as FormStatusValue,
+          message: "Form is locked or not found",
+        };
       }
 
       // 未処理のスケジュールを取得（トリガー時刻が現在時刻以前のもの）
