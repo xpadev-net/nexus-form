@@ -308,16 +308,18 @@ export function buildRarityStats(
     }
   }
 
-  let totalMaxShare = 0;
-  let sampledKeyCount = 0;
+  // Weight each key's share by how many responses actually reported it, so a
+  // key with only a handful of observations (e.g. a rarely-collected signal
+  // that happens to collide twice) can't dominate the average and make a
+  // genuinely diverse population look artificially homogeneous.
+  let totalMaxDf = 0;
+  let totalWeight = 0;
   for (const [key, populationCount] of signalPopulation) {
     if (populationCount <= 0) continue;
-    const maxDf = maxDocumentFrequencyByKey.get(key) ?? 0;
-    totalMaxShare += maxDf / populationCount;
-    sampledKeyCount += 1;
+    totalMaxDf += maxDocumentFrequencyByKey.get(key) ?? 0;
+    totalWeight += populationCount;
   }
-  const averageMaxShare =
-    sampledKeyCount > 0 ? totalMaxShare / sampledKeyCount : 0;
+  const averageMaxShare = totalWeight > 0 ? totalMaxDf / totalWeight : 0;
   const populationDiversityFactor = Math.max(
     MIN_POPULATION_DIVERSITY_FACTOR,
     1 - averageMaxShare,
@@ -693,15 +695,21 @@ export function buildResponseSuspicionGroups(
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
+    // Aggregate-only links must not count toward strongLinkCount either,
+    // otherwise the "N strong links" summary overstates the evidence even
+    // after technicalConfidence has been correctly downgraded above.
     groups.push({
       groupKey: `group-${hashString(JSON.stringify(responseIds))}`,
       technicalConfidence,
       responseIds,
       strongLinkCount: groupLinks.filter(
-        (link) => link.strength === "STRONG" || link.strength === "HARD",
+        (link) =>
+          (link.strength === "STRONG" || link.strength === "HARD") &&
+          !isAggregateOnlyLink(link),
       ).length,
-      supportLinkCount: groupLinks.filter((link) => link.strength === "SUPPORT")
-        .length,
+      supportLinkCount: groupLinks.filter(
+        (link) => link.strength === "SUPPORT" || isAggregateOnlyLink(link),
+      ).length,
       summary: { reasonCodes, topFamilies },
     });
   }
