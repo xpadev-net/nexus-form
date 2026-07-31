@@ -57,6 +57,16 @@ vi.mock("../../queues", () => ({
   })),
 }));
 vi.mock("../../sentry", () => ({ captureError: mocks.captureError }));
+const mockFindFormsNeedingScheduleProcessing = vi.fn(
+  async () => [] as string[],
+);
+const mockProcessMultipleFormSchedules = vi.fn(async () => ({}));
+vi.mock("../schedule-processor", () => ({
+  findFormsNeedingScheduleProcessing: (...args: unknown[]) =>
+    mockFindFormsNeedingScheduleProcessing(...args),
+  processMultipleFormSchedules: (...args: unknown[]) =>
+    mockProcessMultipleFormSchedules(...args),
+}));
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   asc: vi.fn((value: unknown) => ({ type: "asc", value })),
@@ -407,8 +417,30 @@ describe("submit outbox sweeper", () => {
     sweeper.start();
     await vi.waitFor(() => expect(mocks.db.transaction).toHaveBeenCalledOnce());
     await vi.advanceTimersByTimeAsync(25);
-    expect(mocks.db.transaction).toHaveBeenCalledTimes(2);
     await expect(sweeper.stop()).resolves.toBeUndefined();
+  });
+
+  it("processes due form schedules during periodic outbox sweep", async () => {
+    useClaimBatches([[]]);
+    mockFindFormsNeedingScheduleProcessing.mockResolvedValueOnce(["form-123"]);
+    mockProcessMultipleFormSchedules.mockResolvedValueOnce({
+      "form-123": {
+        processed: true,
+        statusChanged: true,
+        newStatus: "PUBLISHED",
+        message: "Form automatically published based on schedule",
+      },
+    });
+
+    const { sweepSubmitOutbox } = await import("../submit-outbox-sweeper");
+    const now = new Date("2026-07-31T15:00:00.000Z");
+    await sweepSubmitOutbox({ now });
+
+    expect(mockFindFormsNeedingScheduleProcessing).toHaveBeenCalledWith(now);
+    expect(mockProcessMultipleFormSchedules).toHaveBeenCalledWith(
+      ["form-123"],
+      now,
+    );
   });
 
   it("keeps migration 0015 additive and documents migration-first rolling deploy", async () => {

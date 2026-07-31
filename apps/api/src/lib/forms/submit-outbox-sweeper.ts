@@ -10,6 +10,10 @@ import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { logError } from "../logger";
 import { getFormSubmitNotificationQueue, getSheetsSyncQueue } from "../queues";
 import { captureError } from "../sentry";
+import {
+  findFormsNeedingScheduleProcessing,
+  processMultipleFormSchedules,
+} from "./schedule-processor";
 
 const DEFAULT_BATCH_SIZE = 100;
 const MAX_BATCH_SIZE = 500;
@@ -329,6 +333,24 @@ export async function sweepSubmitOutbox(
         responseId: row.responseId,
         effectType: row.effectType,
       });
+      captureError(error);
+    }
+  }
+
+  if (!options.responseId) {
+    try {
+      const dueFormIds = await findFormsNeedingScheduleProcessing(now);
+      if (dueFormIds.length > 0) {
+        await processMultipleFormSchedules(dueFormIds, now);
+      }
+    } catch (error) {
+      logError(
+        "Failed to process form schedules during submit outbox sweep",
+        "api",
+        {
+          error,
+        },
+      );
       captureError(error);
     }
   }
