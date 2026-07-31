@@ -642,98 +642,106 @@ describe("ResponseRelationGraph", () => {
   });
 
   it("re-clamps popup window positions when the viewport shrinks", () => {
-    const { nodes, nodeA, edge } = twoNodeEdgeFixture();
-    const { graphContainer, graphRoot } = renderGraph(
-      graphResponse(nodes, [edge]),
-    );
     const originalInnerWidth = window.innerWidth;
     const originalInnerHeight = window.innerHeight;
 
-    const nodeAnchor = getRequiredElement(
-      graphContainer,
-      `a[href="#response-${nodeA.responseId}"]`,
-      isSvgAnchorElement,
-      "node link",
-    );
-    act(() => {
-      fireEvent.pointerDown(nodeAnchor, {
-        button: 0,
-        clientX: 0,
-        clientY: 0,
-        pointerId: 1,
-      });
-    });
-    act(() => {
-      fireEvent.pointerUp(nodeAnchor, { pointerId: 1 });
-    });
+    try {
+      const { nodes, nodeA, edge } = twoNodeEdgeFixture();
+      const { graphContainer, graphRoot } = renderGraph(
+        graphResponse(nodes, [edge]),
+      );
 
-    const header = getRequiredElement(
-      graphContainer,
-      "div.cursor-grab",
-      (element): element is HTMLDivElement => element instanceof HTMLDivElement,
-      "floating window header",
-    );
-
-    // Drag the window far into the bottom-right corner; moves are clamped
-    // to the (large, default jsdom) viewport as they happen.
-    act(() => {
-      fireEvent.pointerDown(header, {
-        button: 0,
-        clientX: 0,
-        clientY: 0,
-        pointerId: 1,
+      const nodeAnchor = getRequiredElement(
+        graphContainer,
+        `a[href="#response-${nodeA.responseId}"]`,
+        isSvgAnchorElement,
+        "node link",
+      );
+      act(() => {
+        fireEvent.pointerDown(nodeAnchor, {
+          button: 0,
+          clientX: 0,
+          clientY: 0,
+          pointerId: 1,
+        });
       });
-    });
-    act(() => {
-      fireEvent.pointerMove(header, {
-        clientX: 5000,
-        clientY: 5000,
-        pointerId: 1,
+      act(() => {
+        fireEvent.pointerUp(nodeAnchor, { pointerId: 1 });
       });
-    });
-    act(() => {
-      fireEvent.pointerUp(header, { pointerId: 1 });
-    });
 
-    const windowElement = header.closest("div.fixed");
-    if (!(windowElement instanceof HTMLElement)) {
-      throw new Error("Expected the floating window element to be present");
+      const header = getRequiredElement(
+        graphContainer,
+        "div.cursor-grab",
+        (element): element is HTMLDivElement =>
+          element instanceof HTMLDivElement,
+        "floating window header",
+      );
+
+      // Drag the window far into the bottom-right corner; moves are clamped
+      // to the (large, default jsdom) viewport as they happen.
+      act(() => {
+        fireEvent.pointerDown(header, {
+          button: 0,
+          clientX: 0,
+          clientY: 0,
+          pointerId: 1,
+        });
+      });
+      act(() => {
+        fireEvent.pointerMove(header, {
+          clientX: 5000,
+          clientY: 5000,
+          pointerId: 1,
+        });
+      });
+      act(() => {
+        fireEvent.pointerUp(header, { pointerId: 1 });
+      });
+
+      const windowElement = header.closest("div.fixed");
+      if (!(windowElement instanceof HTMLElement)) {
+        throw new Error("Expected the floating window element to be present");
+      }
+      const positionBeforeResize = {
+        left: Number.parseFloat(windowElement.style.left),
+        top: Number.parseFloat(windowElement.style.top),
+      };
+      expect(positionBeforeResize.left).toBeGreaterThan(200);
+      expect(positionBeforeResize.top).toBeGreaterThan(100);
+
+      // Shrink the viewport well below the window's current position and
+      // fire resize — the window must be pulled back so its header stays
+      // reachable.
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: 400,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 300,
+      });
+      act(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+
+      expect(Number.parseFloat(windowElement.style.left)).toBeLessThanOrEqual(
+        200,
+      );
+      expect(Number.parseFloat(windowElement.style.top)).toBeLessThanOrEqual(
+        100,
+      );
+
+      act(() => graphRoot.unmount());
+      graphContainer.remove();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalInnerWidth,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalInnerHeight,
+      });
     }
-    const positionBeforeResize = {
-      left: Number.parseFloat(windowElement.style.left),
-      top: Number.parseFloat(windowElement.style.top),
-    };
-    expect(positionBeforeResize.left).toBeGreaterThan(200);
-    expect(positionBeforeResize.top).toBeGreaterThan(100);
-
-    // Shrink the viewport well below the window's current position and fire
-    // resize — the window must be pulled back so its header stays reachable.
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 400,
-    });
-    Object.defineProperty(window, "innerHeight", {
-      configurable: true,
-      value: 300,
-    });
-    act(() => {
-      window.dispatchEvent(new Event("resize"));
-    });
-
-    expect(Number.parseFloat(windowElement.style.left)).toBeLessThanOrEqual(
-      200,
-    );
-    expect(Number.parseFloat(windowElement.style.top)).toBeLessThanOrEqual(100);
-
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: originalInnerWidth,
-    });
-    Object.defineProperty(window, "innerHeight", {
-      configurable: true,
-      value: originalInnerHeight,
-    });
-    act(() => graphRoot.unmount());
-    graphContainer.remove();
   });
 });

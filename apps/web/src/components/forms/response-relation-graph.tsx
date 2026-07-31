@@ -201,11 +201,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/** Order-independent identity for an unordered pair of layout node ids. */
-export function pairKey(a: string, b: string): string {
-  return a < b ? `${a}:${b}` : `${b}:${a}`;
-}
-
 /** Adjacency set (by node id) used to exempt already-linked pairs from `forceMinSeparation`. */
 export type LinkedNeighbors = Map<string, Set<string>>;
 
