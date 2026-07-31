@@ -36,7 +36,7 @@ type GraphNode = ResponseRelationGraphResponse["nodes"][number];
 type GraphEdge = ResponseRelationGraphResponse["edges"][number];
 type DenseCluster = ResponseRelationGraphResponse["denseClusters"][number];
 
-type LayoutNode = SimulationNodeDatum & {
+export type LayoutNode = SimulationNodeDatum & {
   id: string;
   node: GraphNode | null;
   hidden: boolean;
@@ -64,6 +64,8 @@ const cameraMaxScale = 4;
 const nodeDragThreshold = 4;
 const nonRelationMinDistance = 90;
 const nonRelationStrength = 0.6;
+const heavyGraphElementCount = 150;
+const graphFocusMargin = 56;
 
 const reasonLabels: Record<string, string> = {
   "hard:session": "同一セッション",
@@ -184,7 +186,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function pairKey(a: string, b: string): string {
+export function pairKey(a: string, b: string): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
@@ -192,7 +194,7 @@ function isPositionedNode(node: LayoutNode): node is PositionedLayoutNode {
   return typeof node.x === "number" && typeof node.y === "number";
 }
 
-function forceMinSeparation(
+export function forceMinSeparation(
   linkedPairKeys: Set<string>,
   options: { minDistance: number; strength: number },
 ): Force<LayoutNode, LayoutLink> {
@@ -261,6 +263,7 @@ function useForceGraphLayout(
 ): ForceGraphLayout {
   const simulationRef = useRef<Simulation<LayoutNode, LayoutLink> | null>(null);
   const nodesByIdRef = useRef(new Map<string, LayoutNode>());
+  const tickCountRef = useRef(0);
   const [snapshot, setSnapshot] = useState<{
     nodes: PositionedLayoutNode[];
     links: PositionedLayoutLink[];
@@ -342,6 +345,19 @@ function useForceGraphLayout(
           cluster,
         });
       }
+      // Members of the same dense cluster are pulled together by the hub
+      // link, so they must also be exempt from the min-separation force —
+      // otherwise the two forces fight each other and the cluster never
+      // settles.
+      for (let i = 0; i < memberIds.length; i++) {
+        const memberA = memberIds[i];
+        if (!memberA) continue;
+        for (let j = i + 1; j < memberIds.length; j++) {
+          const memberB = memberIds[j];
+          if (!memberB) continue;
+          linkedPairKeys.add(pairKey(memberA, memberB));
+        }
+      }
     }
 
     for (const id of Array.from(nodesById.keys())) {
@@ -380,6 +396,10 @@ function useForceGraphLayout(
       .alphaDecay(0.02)
       .alpha(Math.max(simulation.alpha(), 0.5))
       .on("tick", () => {
+        tickCountRef.current += 1;
+        const isHeavyGraph =
+          layoutNodes.length + layoutLinks.length > heavyGraphElementCount;
+        if (isHeavyGraph && tickCountRef.current % 2 !== 0) return;
         setSnapshot(readSnapshot(layoutNodes, layoutLinks));
       })
       .restart();
@@ -552,6 +572,39 @@ export function ResponseRelationGraphCanvas({
     };
   };
 
+  const graphToClientPoint = (x: number, y: number) => {
+    const bounds = svgRef.current?.getBoundingClientRect();
+    const left = bounds?.left ?? 0;
+    const top = bounds?.top ?? 0;
+    return {
+      x: left + camera.x + x * camera.k,
+      y: top + camera.y + y * camera.k,
+    };
+  };
+
+  const keepPointVisible = (x: number, y: number) => {
+    const bounds = svgRef.current?.getBoundingClientRect();
+    if (!bounds) return;
+    setCamera((current) => {
+      const screenX = x * current.k + current.x;
+      const screenY = y * current.k + current.y;
+      let nextX = current.x;
+      let nextY = current.y;
+      if (screenX < graphFocusMargin) {
+        nextX = current.x + (graphFocusMargin - screenX);
+      } else if (screenX > bounds.width - graphFocusMargin) {
+        nextX = current.x - (screenX - (bounds.width - graphFocusMargin));
+      }
+      if (screenY < graphFocusMargin) {
+        nextY = current.y + (graphFocusMargin - screenY);
+      } else if (screenY > bounds.height - graphFocusMargin) {
+        nextY = current.y - (screenY - (bounds.height - graphFocusMargin));
+      }
+      if (nextX === current.x && nextY === current.y) return current;
+      return { ...current, x: nextX, y: nextY };
+    });
+  };
+
   const handleWheel = (event: ReactWheelEvent<SVGSVGElement>) => {
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -719,15 +772,23 @@ export function ResponseRelationGraphCanvas({
                     event.preventDefault();
                     onSelectEdge(edge);
                   }}
-                  onFocus={(event) =>
+                  onFocus={() => {
+                    const midX = (source.x + target.x) / 2;
+                    const midY = (source.y + target.y) / 2;
+                    setHoveredEdgeKey(edgeKey(edge));
+                    keepPointVisible(midX, midY);
+                    const screen = graphToClientPoint(midX, midY);
                     setTooltip({
                       kind: "edge",
                       edge,
-                      x: event.currentTarget.getBoundingClientRect().left,
-                      y: event.currentTarget.getBoundingClientRect().top,
-                    })
-                  }
-                  onBlur={() => setTooltip(null)}
+                      x: screen.x,
+                      y: screen.y,
+                    });
+                  }}
+                  onBlur={() => {
+                    setHoveredEdgeKey(null);
+                    setTooltip(null);
+                  }}
                   onMouseEnter={(event) => {
                     setHoveredEdgeKey(edgeKey(edge));
                     setTooltip({
@@ -781,6 +842,12 @@ export function ResponseRelationGraphCanvas({
                   event.preventDefault();
                   onSelectResponse(node.responseId);
                 }}
+                onFocus={() => {
+                  keepPointVisible(layoutNode.x, layoutNode.y);
+                  const screen = graphToClientPoint(layoutNode.x, layoutNode.y);
+                  setTooltip({ kind: "node", node, x: screen.x, y: screen.y });
+                }}
+                onBlur={() => setTooltip(null)}
                 onMouseEnter={(event) =>
                   setTooltip({
                     kind: "node",
@@ -1031,9 +1098,9 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   );
 
   const openResponseWindow = (responseId: string) => {
+    const nextZ = ++zIndexCounterRef.current;
     setOpenWindows((current) => {
       const existing = current.find((win) => win.responseId === responseId);
-      const nextZ = ++zIndexCounterRef.current;
       if (existing) {
         return current.map((win) =>
           win.responseId === responseId ? { ...win, zIndex: nextZ } : win,
@@ -1061,12 +1128,12 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   };
 
   const focusResponseWindow = (responseId: string) => {
-    setOpenWindows((current) => {
-      const nextZ = ++zIndexCounterRef.current;
-      return current.map((win) =>
+    const nextZ = ++zIndexCounterRef.current;
+    setOpenWindows((current) =>
+      current.map((win) =>
         win.responseId === responseId ? { ...win, zIndex: nextZ } : win,
-      );
-    });
+      ),
+    );
   };
 
   const moveResponseWindow = (
