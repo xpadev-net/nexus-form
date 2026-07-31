@@ -219,14 +219,77 @@ function toVisibleStrength(
   }
 }
 
-/** Orders `edges` by strength then evidence, strongest last (used to pick the
- * representative edge when several original edges collapse onto the same
- * merged-node pair). */
-function isStrongerEdge(candidate: GraphEdge, current: GraphEdge): boolean {
-  const rankDiff =
-    strengthRank(candidate.strength) - strengthRank(current.strength);
-  if (rankDiff !== 0) return rankDiff > 0;
-  return candidate.deviceEvidence > current.deviceEvidence;
+type FamilyContribution = GraphEdge["familyContributions"][number];
+
+/** Merges same-family contributions (max score, union of reasonCodes) so
+ * combining several original edges' evidence doesn't produce duplicate
+ * per-family entries. */
+function mergeFamilyContributions(
+  contributions: FamilyContribution[],
+): FamilyContribution[] {
+  const byFamily = new Map<string, FamilyContribution>();
+  for (const contribution of contributions) {
+    const existing = byFamily.get(contribution.family);
+    if (!existing) {
+      byFamily.set(contribution.family, {
+        family: contribution.family,
+        score: contribution.score,
+        reasonCodes: [...contribution.reasonCodes],
+      });
+      continue;
+    }
+    existing.score = Math.max(existing.score, contribution.score);
+    for (const reasonCode of contribution.reasonCodes) {
+      if (!existing.reasonCodes.includes(reasonCode)) {
+        existing.reasonCodes.push(reasonCode);
+      }
+    }
+  }
+  return [...byFamily.values()];
+}
+
+/**
+ * Combines every original edge that collapses onto the same merged-node pair
+ * into one edge, instead of keeping just the strongest and silently
+ * dropping the others' evidence. The result's endpoints are the
+ * representative responseIds (`sourceId`/`targetId`) rather than any
+ * original member's id, so the rendered link's popup always refers to
+ * responses that actually have a visible node.
+ */
+function mergeEdges(
+  collapsedEdges: GraphEdge[],
+  sourceId: string,
+  targetId: string,
+): GraphEdge {
+  let strength: GraphEdge["strength"] = "NONE";
+  let deviceEvidence = 0;
+  let v4Support = false;
+  let v6Strong = false;
+  let stateSupport = false;
+  const reasonCodes: string[] = [];
+  const familyContributions: FamilyContribution[] = [];
+  for (const edge of collapsedEdges) {
+    strength = strongerStrength(strength, edge.strength);
+    deviceEvidence = Math.max(deviceEvidence, edge.deviceEvidence);
+    v4Support ||= edge.v4Support;
+    v6Strong ||= edge.v6Strong;
+    stateSupport ||= edge.stateSupport;
+    for (const reasonCode of edge.reasonCodes) {
+      if (!reasonCodes.includes(reasonCode)) reasonCodes.push(reasonCode);
+    }
+    familyContributions.push(...edge.familyContributions);
+  }
+  return {
+    responseIdA: sourceId,
+    responseIdB: targetId,
+    strength,
+    deviceEvidence,
+    v4Support,
+    v6Strong,
+    stateSupport,
+    reasonCodes,
+    familyContributions: mergeFamilyContributions(familyContributions),
+  };
 }
 
 function edgeKey(edge: GraphEdge): string {
@@ -606,11 +669,12 @@ function useForceGraphLayout(
 
     const linkedNeighbors: LinkedNeighbors = new Map();
     // Multiple original edges can land on the same pair of merged nodes;
-    // keep only the strongest one per pair so the merge actually reduces
-    // clutter instead of stacking duplicate lines.
-    const dedupedEdgesByPair = new Map<
+    // combine them into one edge (rather than keeping just the strongest and
+    // discarding the rest) so the group-level link's evidence and endpoints
+    // still account for every collapsed original edge.
+    const collapsedEdgesByPair = new Map<
       string,
-      { edge: GraphEdge; sourceId: string; targetId: string }
+      { edges: GraphEdge[]; sourceId: string; targetId: string }
     >();
     for (const edge of edges) {
       const sourceId = responseIdToRepresentative.get(edge.responseIdA);
@@ -623,20 +687,26 @@ function useForceGraphLayout(
         sourceId < targetId
           ? `${sourceId} ${targetId}`
           : `${targetId} ${sourceId}`;
-      const existingEdge = dedupedEdgesByPair.get(pairKey);
-      if (!existingEdge || isStrongerEdge(edge, existingEdge.edge)) {
-        dedupedEdgesByPair.set(pairKey, { edge, sourceId, targetId });
+      const existing = collapsedEdgesByPair.get(pairKey);
+      if (existing) {
+        existing.edges.push(edge);
+      } else {
+        collapsedEdgesByPair.set(pairKey, {
+          edges: [edge],
+          sourceId,
+          targetId,
+        });
       }
     }
-    const layoutLinks: LayoutLink[] = [...dedupedEdgesByPair.values()].map(
-      ({ edge, sourceId, targetId }) => {
+    const layoutLinks: LayoutLink[] = [...collapsedEdgesByPair.values()].map(
+      ({ edges: collapsedEdges, sourceId, targetId }) => {
         addLinkedPair(linkedNeighbors, sourceId, targetId);
         return {
           source: sourceId,
           target: targetId,
           sourceId,
           targetId,
-          edge,
+          edge: mergeEdges(collapsedEdges, sourceId, targetId),
           cluster: null,
         };
       },

@@ -435,6 +435,66 @@ describe("formsResponsesRouter relation graph", () => {
     );
   });
 
+  it("hashes semantically identical grid answers the same regardless of JSON key order", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(selectQuery([completedRun]))
+      .mockReturnValueOnce(
+        selectQuery([
+          {
+            breakdownJson: {
+              familyContributions: [],
+              reasonCodes: ["support:device"],
+            },
+            deviceEvidence: 0.5,
+            responseIdA: "response-a",
+            responseIdB: "response-b",
+            stateSupport: false,
+            strength: "SUPPORT",
+            v4Support: false,
+            v6Strong: false,
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectQuery([]))
+      .mockReturnValueOnce(
+        selectWhereTerminalQuery([
+          {
+            id: "response-a",
+            respondentUuid: "respondent-a",
+            responseDataJson: JSON.stringify({
+              q1: "x",
+              q2: { row1: "a", row2: "b" },
+            }),
+            submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 0, 1)),
+          },
+          {
+            id: "response-b",
+            respondentUuid: "respondent-b",
+            // Same answers as response-a, but with both the top-level and
+            // the nested grid-row keys written in a different order.
+            responseDataJson: JSON.stringify({
+              q2: { row2: "b", row1: "a" },
+              q1: "x",
+            }),
+            submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 5, 0)),
+          },
+        ]),
+      );
+
+    const body = await requestRelationGraph();
+
+    const hashByResponseId = new Map(
+      body.nodes.map((node: { responseId: string; contentHash: string }) => [
+        node.responseId,
+        node.contentHash,
+      ]),
+    );
+    expect(hashByResponseId.get("response-a")).toBeTruthy();
+    expect(hashByResponseId.get("response-a")).toBe(
+      hashByResponseId.get("response-b"),
+    );
+  });
+
   it("reports node and edge truncation at graph limits", async () => {
     const edges = Array.from({ length: 1001 }, (_, index) => ({
       breakdownJson: { reasonCodes: ["support:device"] },

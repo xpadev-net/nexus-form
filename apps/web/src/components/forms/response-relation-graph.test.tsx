@@ -346,6 +346,57 @@ describe("ResponseRelationGraphCanvas", () => {
     expect(onSelectEdge).toHaveBeenCalledWith(edge);
   });
 
+  it("merges edges that collapse onto the same pair of merged nodes, keeping every original edge's evidence", () => {
+    const nodeX = graphNode(0);
+    const nodeY1 = graphNode(1);
+    // response-2 merges into response-1 (the lower id wins as
+    // representative), so both edge1 and edge2 below collapse onto the same
+    // rendered (nodeX, nodeY1) pair.
+    const nodeY2 = { ...graphNode(2), contentHash: nodeY1.contentHash };
+    const edge1: GraphEdge = {
+      ...graphEdge(nodeX.responseId, nodeY1.responseId),
+      strength: "SUPPORT",
+      deviceEvidence: 0.3,
+      reasonCodes: ["support:device"],
+    };
+    const edge2: GraphEdge = {
+      ...graphEdge(nodeX.responseId, nodeY2.responseId),
+      strength: "STRONG",
+      deviceEvidence: 0.9,
+      reasonCodes: ["support:visitorId"],
+    };
+    const { container, onSelectEdge } = renderCanvas(
+      [nodeX, nodeY1, nodeY2],
+      [edge1, edge2],
+    );
+
+    // Only one hit area is rendered for the collapsed pair, not two.
+    const hitAreas = container.querySelectorAll(
+      'a[href^="#relation-"] line[stroke-width="8"]',
+    );
+    expect(hitAreas).toHaveLength(1);
+
+    act(() => {
+      fireEvent.click(hitAreas[0] as SVGLineElement);
+    });
+
+    expect(onSelectEdge).toHaveBeenCalledTimes(1);
+    const mergedEdge = onSelectEdge.mock.calls[0]?.[0] as GraphEdge;
+    // The strongest of the two collapsed edges' strength/evidence wins...
+    expect(mergedEdge.strength).toBe("STRONG");
+    expect(mergedEdge.deviceEvidence).toBe(0.9);
+    // ...but neither edge's reasonCodes are dropped in the process.
+    expect(mergedEdge.reasonCodes).toEqual(
+      expect.arrayContaining(["support:device", "support:visitorId"]),
+    );
+    // The merged edge's endpoints are the representative ids (both nodes
+    // are actually visible), not response-2's id (which has no node of its
+    // own on the graph after merging).
+    expect([mergedEdge.responseIdA, mergedEdge.responseIdB].sort()).toEqual(
+      [nodeX.responseId, nodeY1.responseId].sort(),
+    );
+  });
+
   it("supports keyboard panning", () => {
     const { nodes, edge } = twoNodeEdgeFixture();
     const { container } = renderCanvas(nodes, [edge]);
