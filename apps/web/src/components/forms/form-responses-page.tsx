@@ -567,42 +567,9 @@ export function FormResponsesContent({
       )}
 
       {state.viewMode === "graph" && (
-        <div className="flex flex-col gap-4 lg:flex-row">
-          <section
-            className={[
-              "rounded-lg border bg-card p-6 shadow-sm",
-              state.selectedResponseId ? "w-full lg:w-1/2" : "w-full",
-            ].join(" ")}
-          >
-            <ResponseRelationGraph
-              formId={formId}
-              selectedResponseId={state.selectedResponseId}
-              onSelectResponse={handleSelectResponse}
-            />
-          </section>
-
-          {state.selectedResponseId && (
-            <section className="w-full rounded-lg border bg-card p-6 shadow-sm lg:w-1/2">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-lg font-semibold">回答詳細</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCloseDetail}
-                  className="h-8 w-8 p-0"
-                  aria-label="回答詳細を閉じる"
-                  disabled={isActionPending}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-              <ResponseDetailView
-                formId={formId}
-                responseId={state.selectedResponseId}
-              />
-            </section>
-          )}
-        </div>
+        <section className="rounded-lg border bg-card p-6 shadow-sm">
+          <ResponseRelationGraph formId={formId} />
+        </section>
       )}
 
       {/* リストビュー */}

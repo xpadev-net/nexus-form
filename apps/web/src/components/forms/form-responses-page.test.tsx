@@ -248,22 +248,8 @@ vi.mock("@/components/forms/response-filter", () => ({
   },
 }));
 vi.mock("@/components/forms/response-relation-graph", () => ({
-  ResponseRelationGraph: ({
-    onSelectResponse,
-    selectedResponseId,
-  }: {
-    onSelectResponse: (responseId: string) => void;
-    selectedResponseId: string | null;
-  }) => (
-    <section data-testid="response-relation-graph">
-      <span>{selectedResponseId ?? "none"}</span>
-      <button
-        type="button"
-        onClick={() => onSelectResponse("response-from-graph")}
-      >
-        graph node
-      </button>
-    </section>
+  ResponseRelationGraph: ({ formId }: { formId: string }) => (
+    <section data-testid="response-relation-graph">{formId}</section>
   ),
 }));
 vi.mock("@/components/ui/alert-dialog", async () => {
@@ -512,7 +498,7 @@ describe("FormResponsesContent accessibility", () => {
     act(() => root.unmount());
   });
 
-  it("switches to the relation graph and opens response detail from graph selection", () => {
+  it("switches to the relation graph view", () => {
     const container = document.createElement("div");
     const root = renderResponses(container);
 
@@ -528,20 +514,6 @@ describe("FormResponsesContent accessibility", () => {
     expect(
       container.querySelector("[data-testid='response-relation-graph']"),
     ).not.toBeNull();
-
-    const graphNodeButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find((button) => button.textContent === "graph node");
-
-    act(() => {
-      graphNodeButton?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
-    });
-
-    expect(
-      container.querySelector("[data-testid='response-detail']")?.textContent,
-    ).toBe("response-from-graph");
 
     act(() => root.unmount());
   });

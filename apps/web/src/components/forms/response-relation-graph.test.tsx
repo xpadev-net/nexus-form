@@ -5,10 +5,7 @@ import { fireEvent, getByRole } from "@testing-library/dom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  buildLayout,
-  ResponseRelationGraphCanvas,
-} from "./response-relation-graph";
+import { ResponseRelationGraphCanvas } from "./response-relation-graph";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -16,7 +13,6 @@ import {
 
 type GraphNode = ResponseRelationGraphResponse["nodes"][number];
 type GraphEdge = ResponseRelationGraphResponse["edges"][number];
-type Layout = ReturnType<typeof buildLayout>;
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -64,21 +60,20 @@ function graphEdge(responseIdA: string, responseIdB: string): GraphEdge {
   };
 }
 
-function renderCanvas(layout: Layout, options?: { onSelectEdge?: () => void }) {
+function renderCanvas(nodes: GraphNode[], edges: GraphEdge[]) {
   container = document.createElement("div");
   document.body.append(container);
-  const onHoverEdge = vi.fn();
-  const onSelectEdge = options?.onSelectEdge ?? vi.fn();
+  const onSelectEdge = vi.fn();
   const onSelectResponse = vi.fn();
   root = createRoot(container);
 
   act(() => {
     root?.render(
       <ResponseRelationGraphCanvas
-        layout={layout}
-        selectedEdge={null}
-        selectedResponseId={null}
-        onHoverEdge={onHoverEdge}
+        nodes={nodes}
+        edges={edges}
+        denseClusters={[]}
+        openResponseIds={new Set()}
         onSelectEdge={onSelectEdge}
         onSelectResponse={onSelectResponse}
       />,
@@ -129,10 +124,6 @@ function isSvgRectElement(element: Element): element is SVGRectElement {
   return element.tagName.toLowerCase() === "rect";
 }
 
-function isSvgCircleElement(element: Element): element is SVGCircleElement {
-  return element.tagName.toLowerCase() === "circle";
-}
-
 function isSvgLineElement(element: Element): element is SVGLineElement {
   return element.tagName.toLowerCase() === "line";
 }
@@ -141,156 +132,49 @@ function isSvgAnchorElement(element: Element): element is SVGAElement {
   return element.tagName.toLowerCase() === "a";
 }
 
-describe("buildLayout", () => {
-  it("keeps related nodes in the visible center area instead of pinning them to the outer frame", () => {
-    const nodes = Array.from({ length: 12 }, (_, index) => graphNode(index));
-    const edges = nodes.map((node, index) => {
-      const nextNode = nodes[(index + 1) % nodes.length];
-      if (!nextNode) {
-        throw new Error("Expected ring graph node fixture to be present");
-      }
-      return graphEdge(node.responseId, nextNode.responseId);
-    });
+function isSvgGroupElement(element: Element): element is SVGGElement {
+  return element.tagName.toLowerCase() === "g";
+}
 
-    const layout = buildLayout(nodes, edges, []);
-    const distancesFromCenter = layout.nodes.map((node) =>
-      Math.hypot(node.x - 660, node.y - 380),
-    );
-
-    expect(layout.nodes).toHaveLength(nodes.length);
-    expect(Math.max(...distancesFromCenter)).toBeLessThan(220);
-    for (const node of layout.nodes) {
-      expect(node.x).toBeGreaterThan(32);
-      expect(node.x).toBeLessThan(1288);
-      expect(node.y).toBeGreaterThan(32);
-      expect(node.y).toBeLessThan(728);
-    }
-  });
-});
+function parseTransform(element: SVGGElement): {
+  x: number;
+  y: number;
+  k: number;
+} {
+  const raw = element.getAttribute("transform") ?? "";
+  const match = raw.match(
+    /translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)/,
+  );
+  if (!match) {
+    throw new Error(`Unexpected transform value: ${raw}`);
+  }
+  const [, x, y, k] = match;
+  return { x: Number(x), y: Number(y), k: Number(k) };
+}
 
 describe("ResponseRelationGraphCanvas", () => {
-  it("pans the wide graph canvas only when dragging the background", () => {
+  it("pans the canvas only when dragging the background", () => {
     const nodes = [graphNode(0), graphNode(1)];
     const [sourceNode, targetNode] = nodes;
     if (!sourceNode || !targetNode) {
       throw new Error("Expected graph node fixtures to be present");
     }
     const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
-    const layout = buildLayout(nodes, [edge], []);
-    const { container, onSelectEdge, onSelectResponse, svg } =
-      renderCanvas(layout);
+    const { container, svg } = renderCanvas(nodes, [edge]);
     const background = getRequiredElement(
       container,
       "rect",
       isSvgRectElement,
       "graph background",
     );
-    const nodeCircle = getRequiredElement(
+    const group = getRequiredElement(
       container,
-      "circle",
-      isSvgCircleElement,
-      "node circle",
-    );
-    const edgeHitArea = getRequiredElement(
-      container,
-      `a[href="#relation-${edge.responseIdA}:${edge.responseIdB}"] line[stroke-width="18"]`,
-      isSvgLineElement,
-      "edge hit area",
+      "svg > g",
+      isSvgGroupElement,
+      "camera transform group",
     );
 
-    expect(svg.getAttribute("viewBox")).toBe("210 120 900 520");
-
-    act(() => {
-      fireEvent.pointerDown(background, {
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-        pointerId: 1,
-      });
-      fireEvent.pointerMove(svg, {
-        clientX: 0,
-        clientY: 0,
-        pointerId: 2,
-      });
-    });
-    expect(svg.getAttribute("viewBox")).toBe("210 120 900 520");
-
-    act(() => {
-      fireEvent.pointerMove(svg, {
-        clientX: 0,
-        clientY: 50,
-        pointerId: 1,
-      });
-      fireEvent.pointerUp(svg, {
-        pointerId: 1,
-      });
-    });
-    expect(svg.getAttribute("viewBox")).toBe("310 170 900 520");
-
-    act(() => {
-      fireEvent.pointerDown(nodeCircle, {
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-        pointerId: 1,
-      });
-      fireEvent.pointerMove(svg, {
-        clientX: 0,
-        clientY: 0,
-        pointerId: 1,
-      });
-      fireEvent.click(nodeCircle);
-    });
-    expect(svg.getAttribute("viewBox")).toBe("310 170 900 520");
-    expect(onSelectResponse).toHaveBeenCalledWith(sourceNode.responseId);
-
-    act(() => {
-      fireEvent.pointerDown(edgeHitArea, {
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-        pointerId: 1,
-      });
-      fireEvent.pointerMove(svg, {
-        clientX: 0,
-        clientY: 0,
-        pointerId: 1,
-      });
-      fireEvent.click(edgeHitArea);
-    });
-    expect(svg.getAttribute("viewBox")).toBe("310 170 900 520");
-    expect(onSelectEdge).toHaveBeenCalledWith(edge);
-  });
-
-  it("keeps pointer panning aligned when the responsive SVG is letterboxed", () => {
-    const nodes = [graphNode(0), graphNode(1)];
-    const [sourceNode, targetNode] = nodes;
-    if (!sourceNode || !targetNode) {
-      throw new Error("Expected graph node fixtures to be present");
-    }
-    const layout = buildLayout(
-      nodes,
-      [graphEdge(sourceNode.responseId, targetNode.responseId)],
-      [],
-    );
-    const { container, svg } = renderCanvas(layout);
-    const background = getRequiredElement(
-      container,
-      "rect",
-      isSvgRectElement,
-      "graph background",
-    );
-    svg.getBoundingClientRect = vi.fn(() => ({
-      bottom: 520,
-      height: 520,
-      left: 0,
-      right: 1800,
-      top: 0,
-      width: 1800,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    }));
+    expect(parseTransform(group)).toEqual({ x: 0, y: 0, k: 1 });
 
     act(() => {
       fireEvent.pointerDown(background, {
@@ -302,72 +186,50 @@ describe("ResponseRelationGraphCanvas", () => {
     });
     act(() => {
       fireEvent.pointerMove(svg, {
-        clientX: 0,
-        clientY: 50,
-        pointerId: 1,
-      });
-      fireEvent.pointerUp(svg, {
+        clientX: 140,
+        clientY: 160,
         pointerId: 1,
       });
     });
+    act(() => {
+      fireEvent.pointerUp(svg, { pointerId: 1 });
+    });
 
-    expect(svg.getAttribute("viewBox")).toBe("310 170 900 520");
+    expect(parseTransform(group)).toEqual({ x: 40, y: 60, k: 1 });
   });
 
-  it("starts panning from the SVG letterbox area", () => {
+  it("zooms toward the pointer position on wheel", () => {
     const nodes = [graphNode(0), graphNode(1)];
     const [sourceNode, targetNode] = nodes;
     if (!sourceNode || !targetNode) {
       throw new Error("Expected graph node fixtures to be present");
     }
-    const layout = buildLayout(
-      nodes,
-      [graphEdge(sourceNode.responseId, targetNode.responseId)],
-      [],
+    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { container, svg } = renderCanvas(nodes, [edge]);
+    const group = getRequiredElement(
+      container,
+      "svg > g",
+      isSvgGroupElement,
+      "camera transform group",
     );
-    const { svg } = renderCanvas(layout);
 
     act(() => {
-      fireEvent.pointerDown(svg, {
-        button: 0,
-        clientX: 100,
-        clientY: 100,
-        pointerId: 1,
-      });
-    });
-    act(() => {
-      fireEvent.pointerMove(svg, {
-        clientX: 0,
-        clientY: 50,
-        pointerId: 1,
-      });
-      fireEvent.pointerUp(svg, {
-        pointerId: 1,
-      });
+      fireEvent.wheel(svg, { deltaY: -100, clientX: 450, clientY: 260 });
     });
 
-    expect(svg.getAttribute("viewBox")).toBe("310 170 900 520");
+    const transform = parseTransform(group);
+    expect(transform.k).toBeGreaterThan(1);
   });
 
-  it("supports keyboard panning and keeps focused nodes visible", () => {
+  it("opens the response window on a plain node click, not on drag", () => {
     const nodes = [graphNode(0), graphNode(1)];
     const [sourceNode, targetNode] = nodes;
     if (!sourceNode || !targetNode) {
       throw new Error("Expected graph node fixtures to be present");
     }
-    const layout = buildLayout(
-      nodes,
-      [graphEdge(sourceNode.responseId, targetNode.responseId)],
-      [],
-    );
-    const firstLayoutNode = layout.nodes[0];
-    if (!firstLayoutNode) {
-      throw new Error("Expected a layout node to be present");
-    }
-    firstLayoutNode.x = 1260;
-    firstLayoutNode.y = 380;
-    const { container, svg } = renderCanvas(layout);
-    const nodeLink = getRequiredElement(
+    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { container, onSelectResponse } = renderCanvas(nodes, [edge]);
+    const nodeAnchor = getRequiredElement(
       container,
       `a[href="#response-${sourceNode.responseId}"]`,
       isSvgAnchorElement,
@@ -375,13 +237,88 @@ describe("ResponseRelationGraphCanvas", () => {
     );
 
     act(() => {
-      fireEvent.focusIn(nodeLink);
+      fireEvent.pointerDown(nodeAnchor, {
+        button: 0,
+        clientX: 100,
+        clientY: 100,
+        pointerId: 1,
+      });
     });
-    expect(svg.getAttribute("viewBox")).toBe("416 120 900 520");
+    act(() => {
+      fireEvent.pointerUp(nodeAnchor, { pointerId: 1 });
+    });
+
+    expect(onSelectResponse).toHaveBeenCalledWith(sourceNode.responseId);
+
+    onSelectResponse.mockClear();
 
     act(() => {
-      fireEvent.keyDown(nodeLink, { key: "ArrowRight" });
+      fireEvent.pointerDown(nodeAnchor, {
+        button: 0,
+        clientX: 100,
+        clientY: 100,
+        pointerId: 1,
+      });
     });
-    expect(svg.getAttribute("viewBox")).toBe("420 120 900 520");
+    act(() => {
+      fireEvent.pointerMove(nodeAnchor, {
+        clientX: 200,
+        clientY: 200,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(nodeAnchor, { pointerId: 1 });
+    });
+
+    expect(onSelectResponse).not.toHaveBeenCalled();
+  });
+
+  it("selects an edge when its hit area is clicked", () => {
+    const nodes = [graphNode(0), graphNode(1)];
+    const [sourceNode, targetNode] = nodes;
+    if (!sourceNode || !targetNode) {
+      throw new Error("Expected graph node fixtures to be present");
+    }
+    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { container, onSelectEdge } = renderCanvas(nodes, [edge]);
+    const edgeHitArea = getRequiredElement(
+      container,
+      `a[href="#relation-${edge.responseIdA}:${edge.responseIdB}"] line[stroke-width="18"]`,
+      isSvgLineElement,
+      "edge hit area",
+    );
+
+    act(() => {
+      fireEvent.click(edgeHitArea);
+    });
+
+    expect(onSelectEdge).toHaveBeenCalledWith(edge);
+  });
+
+  it("supports keyboard panning", () => {
+    const nodes = [graphNode(0), graphNode(1)];
+    const [sourceNode, targetNode] = nodes;
+    if (!sourceNode || !targetNode) {
+      throw new Error("Expected graph node fixtures to be present");
+    }
+    const edge = graphEdge(sourceNode.responseId, targetNode.responseId);
+    const { container } = renderCanvas(nodes, [edge]);
+    const group = getRequiredElement(
+      container,
+      "svg > g",
+      isSvgGroupElement,
+      "camera transform group",
+    );
+    const fieldset = container.querySelector("fieldset");
+    if (!fieldset) {
+      throw new Error("Expected fieldset wrapper to be present");
+    }
+
+    act(() => {
+      fireEvent.keyDown(fieldset, { key: "ArrowRight" });
+    });
+
+    expect(parseTransform(group)).toEqual({ x: -56, y: 0, k: 1 });
   });
 });
