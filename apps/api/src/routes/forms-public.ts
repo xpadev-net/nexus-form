@@ -560,8 +560,21 @@ const exchangeServerContextSchema = z.object({
   ),
 });
 
+type ResponseFingerprintEvidence = {
+  type: string;
+  name: string;
+  value_hash: string;
+};
+
+const responseFingerprintEvidenceSchema = z.object({
+  type: z.string(),
+  name: z.string(),
+  value_hash: z.string(),
+});
+
 const exchangeObservationContextSchema = z.object({
   d: z.string().length(64),
+  fp: z.array(responseFingerprintEvidenceSchema).optional(),
 });
 
 type ExchangeObservationTuple = z.infer<
@@ -584,6 +597,16 @@ const securityObservationTemplate = [
     c: entry.code,
   })),
 ] satisfies Array<Omit<SecurityObservationPlanEntry, "a">>;
+
+const securityObservationComponentByPlanKey = new Map(
+  securityObservationComponentMap.map((entry) => [
+    `${entry.family}:${entry.code}`,
+    {
+      fingerprintType: entry.fingerprintType,
+      componentName: entry.componentName,
+    },
+  ]),
+);
 
 function buildSecurityObservationPlan(): SecurityObservationPlanEntry[] {
   const plan = securityObservationTemplate.map((entry) => ({
@@ -665,6 +688,41 @@ function digestSecurityObservations(params: {
       String(families.size),
     ].join("\0"),
   );
+}
+
+function buildResponseFingerprintsFromSecurityEvidence(params: {
+  evidence: ExchangeObservationTuple[];
+  plan: SecurityObservationPlanEntry[];
+}): ResponseFingerprintEvidence[] {
+  const planBySlot = new Map(params.plan.map((entry) => [entry.a, entry]));
+  const seenSlots = new Set<string>();
+  const seenComponents = new Set<string>();
+  return params.evidence.map(([slot, digest]) => {
+    if (seenSlots.has(slot)) {
+      throw new FingerprintCollectionTokenError();
+    }
+    seenSlots.add(slot);
+    const planEntry = planBySlot.get(slot);
+    if (!planEntry) {
+      throw new FingerprintCollectionTokenError();
+    }
+    const component = securityObservationComponentByPlanKey.get(
+      `${planEntry.f}:${planEntry.c}`,
+    );
+    if (!component || component.componentName !== planEntry.n) {
+      throw new FingerprintCollectionTokenError();
+    }
+    const componentKey = `${component.fingerprintType}:${component.componentName}`;
+    if (seenComponents.has(componentKey)) {
+      throw new FingerprintCollectionTokenError();
+    }
+    seenComponents.add(componentKey);
+    return {
+      type: component.fingerprintType,
+      name: component.componentName,
+      value_hash: digest,
+    };
+  });
 }
 
 function getCookieValue(request: Request, cookieName: string): string | null {
@@ -794,10 +852,12 @@ async function consumeFingerprintCollectionOrThrow(params: {
   userAgent: string | undefined;
 }): Promise<{
   attemptId: string | null;
+  fingerprints: ResponseFingerprintEvidence[];
 }> {
   if (process.env.NODE_ENV === "test" && !params.receipt) {
     return {
       attemptId: null,
+      fingerprints: [],
     };
   }
 
@@ -851,7 +911,10 @@ async function consumeFingerprintCollectionOrThrow(params: {
     throw new FingerprintCollectionTokenError();
   }
 
-  return { attemptId: attempt.id };
+  return {
+    attemptId: attempt.id,
+    fingerprints: observationContext.data.fp ?? [],
+  };
 }
 
 function extractBlockIdsFromPlateContent(plateContent: string): Set<string> {
@@ -1344,12 +1407,17 @@ export const formsPublicRouter = createHonoApp()
             publicId,
           });
 
+          const fingerprints = buildResponseFingerprintsFromSecurityEvidence({
+            evidence: payload.d,
+            plan: serverContext.s,
+          });
+
           await tx
             .update(fingerprintCollectionAttempt)
             .set({
               collectionTokenHash: hashExchangeToken(collectionToken),
               collectionExpiresAt,
-              observationDigestJson: { d: observationDigest },
+              observationDigestJson: { d: observationDigest, fp: fingerprints },
               finalizedAt: currentTime,
             })
             .where(eq(fingerprintCollectionAttempt.id, attempt.id));
@@ -1722,7 +1790,7 @@ export const formsPublicRouter = createHonoApp()
                   currentIp: ip,
                   userAgent,
                 })
-              : { attemptId: null };
+              : { attemptId: null, fingerprints: [] };
 
           const { sessionId, jwt: sessionJwt } = await resolveSessionIdOrCreate(
             jwtToken,
@@ -1781,9 +1849,10 @@ export const formsPublicRouter = createHonoApp()
             }),
           );
 
-          // Client-side exchange observations are intentionally not copied into
-          // response-level evidence; they only gate this submission attempt.
-          const allFingerprints = telemetryFingerprints;
+          const allFingerprints = [
+            ...telemetryFingerprints,
+            ...collectionResult.fingerprints,
+          ];
 
           if (allFingerprints.length > 0) {
             await tx.insert(fingerprintDetail).values(
