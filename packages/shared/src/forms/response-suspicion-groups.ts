@@ -125,6 +125,9 @@ export const ResponseRelationGraphResponseSchema = z.object({
       respondentUuid: z.string(),
       strongestStrength: ResponseLinkStrengthSchema,
       strongestEvidence: z.number(),
+      /** sha256 of the response's answer payload (excludes submittedAt), used
+       * to merge responses with identical answers into a single graph node. */
+      contentHash: z.string(),
     }),
   ),
   edges: z.array(

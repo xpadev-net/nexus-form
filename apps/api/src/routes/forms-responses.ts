@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import {
@@ -634,6 +634,40 @@ function strongerResponseLinkStrength<
   return responseLinkStrengthRanks[left] >= responseLinkStrengthRanks[right]
     ? left
     : right;
+}
+
+/** Recursively sorts object keys so two structurally-equal values (e.g. two
+ * grid-question `responses` maps built in different row order) serialize
+ * identically, independent of insertion order. Array element order is left
+ * untouched since it's semantically significant for response payloads. */
+function canonicalizeForHash(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeForHash);
+  if (value !== null && typeof value === "object") {
+    // Plain code-unit comparison, not localeCompare — the sort order must
+    // be identical across every environment/ICU configuration this runs in
+    // for the resulting hash to be deterministic.
+    const sortedEntries = Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entryValue]) => [key, canonicalizeForHash(entryValue)]);
+    return Object.fromEntries(sortedEntries);
+  }
+  return value;
+}
+
+/** Hashes a response's stored answer JSON so responses with identical
+ * answers get identical hashes regardless of incidental key-order
+ * differences in how the JSON was originally serialized. */
+function computeResponseContentHash(responseDataJson: string): string {
+  let canonicalJson = responseDataJson;
+  try {
+    canonicalJson = JSON.stringify(
+      canonicalizeForHash(JSON.parse(responseDataJson)),
+    );
+  } catch {
+    // Malformed JSON should not occur for API-written rows; fall back to
+    // hashing the raw bytes rather than failing the whole graph request.
+  }
+  return createHash("sha256").update(canonicalJson).digest("hex");
 }
 
 async function getLatestCompletedResponseLinkRun(
@@ -2881,6 +2915,7 @@ export const formsResponsesRouter = createHonoApp()
               id: formResponse.id,
               submittedAt: formResponse.submittedAt,
               respondentUuid: formResponse.respondentUuid,
+              responseDataJson: formResponse.responseDataJson,
             })
             .from(formResponse)
             .where(inArray(formResponse.id, visibleResponseIds))
@@ -2966,6 +3001,9 @@ export const formsResponsesRouter = createHonoApp()
               respondentUuid: response.respondentUuid,
               strongestStrength: strongest.strongestStrength,
               strongestEvidence: strongest.strongestEvidence,
+              contentHash: computeResponseContentHash(
+                response.responseDataJson ?? "",
+              ),
             },
           ];
         }),

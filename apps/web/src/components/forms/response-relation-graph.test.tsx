@@ -86,6 +86,7 @@ function graphNode(index: number): GraphNode {
     respondentUuid: `respondent-${index}`,
     strongestStrength: "STRONG",
     strongestEvidence: 0.9,
+    contentHash: `content-hash-${index}`,
   };
 }
 
@@ -122,11 +123,16 @@ function twoNodeEdgeFixture(): {
   };
 }
 
-function renderCanvas(nodes: GraphNode[], edges: GraphEdge[]) {
+function renderCanvas(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  denseClusters: ResponseRelationGraphResponse["denseClusters"] = [],
+) {
   container = document.createElement("div");
   document.body.append(container);
   const onSelectEdge = vi.fn();
   const onSelectResponse = vi.fn();
+  const onSelectGroup = vi.fn();
   root = createRoot(container);
 
   act(() => {
@@ -134,10 +140,11 @@ function renderCanvas(nodes: GraphNode[], edges: GraphEdge[]) {
       <ResponseRelationGraphCanvas
         nodes={nodes}
         edges={edges}
-        denseClusters={[]}
+        denseClusters={denseClusters}
         openResponseIds={new Set()}
         onSelectEdge={onSelectEdge}
         onSelectResponse={onSelectResponse}
+        onSelectGroup={onSelectGroup}
       />,
     );
   });
@@ -161,7 +168,7 @@ function renderCanvas(nodes: GraphNode[], edges: GraphEdge[]) {
     toJSON: () => ({}),
   }));
 
-  return { container, onSelectEdge, onSelectResponse, svg };
+  return { container, onSelectEdge, onSelectResponse, onSelectGroup, svg };
 }
 
 function getRequiredElement<TElement extends Element>(
@@ -327,7 +334,7 @@ describe("ResponseRelationGraphCanvas", () => {
     const { container, onSelectEdge } = renderCanvas(nodes, [edge]);
     const edgeHitArea = getRequiredElement(
       container,
-      `a[href="#relation-${edge.responseIdA}:${edge.responseIdB}"] line[stroke-width="18"]`,
+      `a[href="#relation-${edge.responseIdA}:${edge.responseIdB}"] line[stroke-width="8"]`,
       isSvgLineElement,
       "edge hit area",
     );
@@ -336,7 +343,55 @@ describe("ResponseRelationGraphCanvas", () => {
       fireEvent.click(edgeHitArea);
     });
 
-    expect(onSelectEdge).toHaveBeenCalledWith(edge);
+    expect(onSelectEdge).toHaveBeenCalledWith([edge]);
+  });
+
+  it("collapses multiple edges onto one visual line without fabricating combined evidence for a pair they don't describe", () => {
+    const nodeX = graphNode(0);
+    const nodeY1 = graphNode(1);
+    // response-2 merges into response-1 (the lower id wins as
+    // representative), so both edge1 and edge2 below collapse onto the same
+    // rendered (nodeX, nodeY1) pair even though edge2 was really found
+    // between nodeX and response-2, not nodeX and response-1.
+    const nodeY2 = { ...graphNode(2), contentHash: nodeY1.contentHash };
+    const edge1: GraphEdge = {
+      ...graphEdge(nodeX.responseId, nodeY1.responseId),
+      strength: "SUPPORT",
+      deviceEvidence: 0.3,
+      reasonCodes: ["support:device"],
+    };
+    const edge2: GraphEdge = {
+      ...graphEdge(nodeX.responseId, nodeY2.responseId),
+      strength: "STRONG",
+      deviceEvidence: 0.9,
+      reasonCodes: ["support:visitorId"],
+    };
+    const { container, onSelectEdge } = renderCanvas(
+      [nodeX, nodeY1, nodeY2],
+      [edge1, edge2],
+    );
+
+    // Only one hit area is rendered for the collapsed pair, not two.
+    const hitAreas = container.querySelectorAll(
+      'a[href^="#relation-"] line[stroke-width="8"]',
+    );
+    expect(hitAreas).toHaveLength(1);
+
+    act(() => {
+      fireEvent.click(hitAreas[0] as SVGLineElement);
+    });
+
+    expect(onSelectEdge).toHaveBeenCalledTimes(1);
+    // Every original edge is passed through unmodified — not merged into
+    // one synthetic edge — so each keeps its own real endpoints/evidence.
+    const selectedEdges = onSelectEdge.mock.calls[0]?.[0] as GraphEdge[];
+    expect(selectedEdges).toHaveLength(2);
+    expect(selectedEdges).toEqual(expect.arrayContaining([edge1, edge2]));
+    expect(
+      selectedEdges.find(
+        (selectedEdge) => selectedEdge.responseIdB === nodeY2.responseId,
+      ),
+    ).toEqual(edge2);
   });
 
   it("supports keyboard panning", () => {
@@ -599,7 +654,7 @@ describe("ResponseRelationGraph", () => {
 
     const edgeHitArea = getRequiredElement(
       graphContainer,
-      `a[href="#relation-${edge.responseIdA}:${edge.responseIdB}"] line[stroke-width="18"]`,
+      `a[href="#relation-${edge.responseIdA}:${edge.responseIdB}"] line[stroke-width="8"]`,
       isSvgLineElement,
       "edge hit area",
     );
@@ -747,5 +802,352 @@ describe("ResponseRelationGraph", () => {
         value: originalInnerHeight,
       });
     }
+  });
+
+  it("does not start a window drag when pressing the close button, so the button stays clickable", () => {
+    const { nodes, nodeA } = twoNodeEdgeFixture();
+    const { graphContainer, graphRoot } = renderGraph(graphResponse(nodes, []));
+
+    const nodeAnchor = getRequiredElement(
+      graphContainer,
+      `a[href="#response-${nodeA.responseId}"]`,
+      isSvgAnchorElement,
+      "node link",
+    );
+    act(() => {
+      fireEvent.pointerDown(nodeAnchor, {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(nodeAnchor, { pointerId: 1 });
+    });
+
+    const closeButton = getRequiredElement(
+      graphContainer,
+      "button[aria-label='回答ウィンドウを閉じる']",
+      (element): element is HTMLButtonElement =>
+        element instanceof HTMLButtonElement,
+      "close button",
+    );
+    const windowElement = closeButton.closest("div.fixed");
+    if (!(windowElement instanceof HTMLElement)) {
+      throw new Error("Expected the floating window element to be present");
+    }
+    const positionBefore = {
+      left: windowElement.style.left,
+      top: windowElement.style.top,
+    };
+
+    // A press-and-drag starting on the close button itself: without
+    // stopPropagation on the button's pointerdown, this bubbles into the
+    // header's drag handler (React dispatches pointer events along the real
+    // DOM ancestor chain regardless of setPointerCapture) and moves the
+    // window — which is exactly the bug that made the button unclickable.
+    act(() => {
+      fireEvent.pointerDown(closeButton, {
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 2,
+      });
+    });
+    act(() => {
+      fireEvent.pointerMove(closeButton, {
+        clientX: 400,
+        clientY: 400,
+        pointerId: 2,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(closeButton, { pointerId: 2 });
+    });
+
+    expect(windowElement.style.left).toBe(positionBefore.left);
+    expect(windowElement.style.top).toBe(positionBefore.top);
+
+    act(() => {
+      fireEvent.click(closeButton);
+    });
+
+    expect(
+      graphContainer.querySelector("[data-testid='response-detail']"),
+    ).toBeNull();
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
+  });
+
+  it("resizes a floating window by dragging its resize handle", () => {
+    const { nodes, nodeA } = twoNodeEdgeFixture();
+    const { graphContainer, graphRoot } = renderGraph(graphResponse(nodes, []));
+
+    const nodeAnchor = getRequiredElement(
+      graphContainer,
+      `a[href="#response-${nodeA.responseId}"]`,
+      isSvgAnchorElement,
+      "node link",
+    );
+    act(() => {
+      fireEvent.pointerDown(nodeAnchor, {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(nodeAnchor, { pointerId: 1 });
+    });
+
+    const resizeHandle = getRequiredElement(
+      graphContainer,
+      "[aria-label='回答ウィンドウのサイズを変更']",
+      (element): element is HTMLButtonElement =>
+        element instanceof HTMLButtonElement,
+      "resize handle",
+    );
+    const windowElement = resizeHandle.closest("div.fixed");
+    if (!(windowElement instanceof HTMLElement)) {
+      throw new Error("Expected the floating window element to be present");
+    }
+    const widthBefore = Number.parseFloat(windowElement.style.width);
+    const heightBefore = Number.parseFloat(windowElement.style.height);
+
+    act(() => {
+      fireEvent.pointerDown(resizeHandle, {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 3,
+      });
+    });
+    act(() => {
+      fireEvent.pointerMove(resizeHandle, {
+        clientX: 120,
+        clientY: 80,
+        pointerId: 3,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(resizeHandle, { pointerId: 3 });
+    });
+
+    expect(Number.parseFloat(windowElement.style.width)).toBe(
+      widthBefore + 120,
+    );
+    expect(Number.parseFloat(windowElement.style.height)).toBe(
+      heightBefore + 80,
+    );
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
+  });
+
+  it("merges responses sharing identical answer content into one larger node, reachable in full via the sidebar", () => {
+    const nodeA = graphNode(0);
+    const nodeB = { ...graphNode(1), contentHash: nodeA.contentHash };
+    const { graphContainer, graphRoot } = renderGraph(
+      graphResponse([nodeA, nodeB], []),
+    );
+
+    // The two responses share a contentHash, so only one visual node is
+    // rendered for the pair instead of two.
+    const nodeAnchors = graphContainer.querySelectorAll(
+      'svg a[href^="#response-"]',
+    );
+    expect(nodeAnchors).toHaveLength(1);
+
+    const mergedAnchor = nodeAnchors[0];
+    if (!mergedAnchor || !isSvgAnchorElement(mergedAnchor)) {
+      throw new Error("Expected the merged node anchor to be an SVG <a>");
+    }
+    expect(mergedAnchor.getAttribute("href")).toBe(
+      `#response-${nodeA.responseId}`,
+    );
+    expect(mergedAnchor.getAttribute("aria-label")).toContain("計2件");
+
+    act(() => {
+      fireEvent.pointerDown(mergedAnchor, {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(mergedAnchor, { pointerId: 1 });
+    });
+
+    // Clicking the merged node opens the representative response...
+    expect(
+      graphContainer.querySelector("[data-testid='response-detail']")
+        ?.textContent,
+    ).toBe(nodeA.responseId);
+
+    // ...and surfaces every merged response in the sidebar, so the other
+    // member — otherwise unreachable, since it has no node of its own on
+    // the graph — can still be opened.
+    const groupMemberButtons = Array.from(
+      graphContainer.querySelectorAll("aside button.font-mono"),
+    ).map((button) => button.textContent);
+    expect(groupMemberButtons).toEqual(
+      expect.arrayContaining([nodeA.responseId, nodeB.responseId]),
+    );
+
+    // The sidebar heading names this specific reason (duplicate answer
+    // content), not the generic dense-cluster heading it reuses the UI from.
+    expect(graphContainer.querySelector("aside h3")?.textContent).toBe(
+      "送信日時以外が同一の回答",
+    );
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
+  });
+
+  it("surfaces the merged group in the sidebar on keyboard activation too, not just pointer clicks", () => {
+    const nodeA = graphNode(0);
+    const nodeB = { ...graphNode(1), contentHash: nodeA.contentHash };
+    const { graphContainer, graphRoot } = renderGraph(
+      graphResponse([nodeA, nodeB], []),
+    );
+
+    const mergedAnchor = getRequiredElement(
+      graphContainer,
+      `a[href="#response-${nodeA.responseId}"]`,
+      isSvgAnchorElement,
+      "merged node link",
+    );
+
+    act(() => {
+      fireEvent.keyDown(mergedAnchor, { key: "Enter" });
+    });
+
+    expect(
+      graphContainer.querySelector("[data-testid='response-detail']")
+        ?.textContent,
+    ).toBe(nodeA.responseId);
+    const groupMemberButtons = Array.from(
+      graphContainer.querySelectorAll("aside button.font-mono"),
+    ).map((button) => button.textContent);
+    expect(groupMemberButtons).toEqual(
+      expect.arrayContaining([nodeA.responseId, nodeB.responseId]),
+    );
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
+  });
+
+  it("keeps a resized window's edges within the viewport even when it was previously dragged away from the top-left corner", () => {
+    const { nodes, nodeA } = twoNodeEdgeFixture();
+    const { graphContainer, graphRoot } = renderGraph(graphResponse(nodes, []));
+
+    const nodeAnchor = getRequiredElement(
+      graphContainer,
+      `a[href="#response-${nodeA.responseId}"]`,
+      isSvgAnchorElement,
+      "node link",
+    );
+    act(() => {
+      fireEvent.pointerDown(nodeAnchor, {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(nodeAnchor, { pointerId: 1 });
+    });
+
+    const header = getRequiredElement(
+      graphContainer,
+      "div.cursor-grab",
+      (element): element is HTMLDivElement => element instanceof HTMLDivElement,
+      "floating window header",
+    );
+
+    // Drag the window well away from the top-left corner first.
+    act(() => {
+      fireEvent.pointerDown(header, {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerMove(header, {
+        clientX: 600,
+        clientY: 400,
+        pointerId: 1,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(header, { pointerId: 1 });
+    });
+
+    const resizeHandle = getRequiredElement(
+      graphContainer,
+      "[aria-label='回答ウィンドウのサイズを変更']",
+      (element): element is HTMLButtonElement =>
+        element instanceof HTMLButtonElement,
+      "resize handle",
+    );
+    const windowElement = resizeHandle.closest("div.fixed");
+    if (!(windowElement instanceof HTMLElement)) {
+      throw new Error("Expected the floating window element to be present");
+    }
+    const positionAfterDrag = {
+      left: Number.parseFloat(windowElement.style.left),
+      top: Number.parseFloat(windowElement.style.top),
+    };
+
+    // Now try to resize it by an amount that, from this position, would
+    // push it far past the (large, default jsdom) viewport if the resize
+    // itself didn't account for where the window currently sits.
+    act(() => {
+      fireEvent.pointerDown(resizeHandle, {
+        button: 0,
+        clientX: 0,
+        clientY: 0,
+        pointerId: 3,
+      });
+    });
+    act(() => {
+      fireEvent.pointerMove(resizeHandle, {
+        clientX: 5000,
+        clientY: 5000,
+        pointerId: 3,
+      });
+    });
+    act(() => {
+      fireEvent.pointerUp(resizeHandle, { pointerId: 3 });
+    });
+
+    // Dragging never changes the window's stored top-left position...
+    expect(Number.parseFloat(windowElement.style.left)).toBe(
+      positionAfterDrag.left,
+    );
+    expect(Number.parseFloat(windowElement.style.top)).toBe(
+      positionAfterDrag.top,
+    );
+    // ...so the resize handle (right/bottom edge) must itself have been
+    // capped to keep the window within the viewport from that position,
+    // rather than growing without bound.
+    const width = Number.parseFloat(windowElement.style.width);
+    const height = Number.parseFloat(windowElement.style.height);
+    expect(positionAfterDrag.left + width).toBeLessThanOrEqual(
+      window.innerWidth,
+    );
+    expect(positionAfterDrag.top + height).toBeLessThanOrEqual(
+      window.innerHeight,
+    );
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
   });
 });

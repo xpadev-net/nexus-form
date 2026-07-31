@@ -204,6 +204,7 @@ function responseRow(id: string, index: number) {
   return {
     id,
     respondentUuid: `respondent-${id}`,
+    responseDataJson: JSON.stringify({ q1: id }),
     submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 0, index)),
   };
 }
@@ -356,6 +357,142 @@ describe("formsResponsesRouter relation graph", () => {
       { field: "responseSuspicionGroupMember.groupId", op: "asc" },
       { field: "responseSuspicionGroupMember.responseId", op: "asc" },
     ]);
+  });
+
+  it("hashes each response's answer payload so identical answers share a contentHash and differing ones don't", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(selectQuery([completedRun]))
+      .mockReturnValueOnce(
+        selectQuery([
+          {
+            breakdownJson: {
+              familyContributions: [],
+              reasonCodes: ["support:device"],
+            },
+            deviceEvidence: 0.5,
+            responseIdA: "response-a",
+            responseIdB: "response-b",
+            stateSupport: false,
+            strength: "SUPPORT",
+            v4Support: false,
+            v6Strong: false,
+          },
+          {
+            breakdownJson: {
+              familyContributions: [],
+              reasonCodes: ["support:device"],
+            },
+            deviceEvidence: 0.5,
+            responseIdA: "response-a",
+            responseIdB: "response-c",
+            stateSupport: false,
+            strength: "SUPPORT",
+            v4Support: false,
+            v6Strong: false,
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectQuery([]))
+      .mockReturnValueOnce(
+        selectWhereTerminalQuery([
+          {
+            id: "response-a",
+            respondentUuid: "respondent-a",
+            responseDataJson: JSON.stringify({ q1: "same answer" }),
+            submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 0, 1)),
+          },
+          {
+            id: "response-b",
+            respondentUuid: "respondent-b",
+            // Same answer content, different submittedAt/respondentUuid —
+            // must still produce the same contentHash as response-a.
+            responseDataJson: JSON.stringify({ q1: "same answer" }),
+            submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 5, 0)),
+          },
+          {
+            id: "response-c",
+            respondentUuid: "respondent-c",
+            responseDataJson: JSON.stringify({ q1: "different answer" }),
+            submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 0, 2)),
+          },
+        ]),
+      );
+
+    const body = await requestRelationGraph();
+
+    const hashByResponseId = new Map(
+      body.nodes.map((node: { responseId: string; contentHash: string }) => [
+        node.responseId,
+        node.contentHash,
+      ]),
+    );
+    expect(hashByResponseId.get("response-a")).toBeTruthy();
+    expect(hashByResponseId.get("response-a")).toBe(
+      hashByResponseId.get("response-b"),
+    );
+    expect(hashByResponseId.get("response-a")).not.toBe(
+      hashByResponseId.get("response-c"),
+    );
+  });
+
+  it("hashes semantically identical grid answers the same regardless of JSON key order", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(selectQuery([completedRun]))
+      .mockReturnValueOnce(
+        selectQuery([
+          {
+            breakdownJson: {
+              familyContributions: [],
+              reasonCodes: ["support:device"],
+            },
+            deviceEvidence: 0.5,
+            responseIdA: "response-a",
+            responseIdB: "response-b",
+            stateSupport: false,
+            strength: "SUPPORT",
+            v4Support: false,
+            v6Strong: false,
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectQuery([]))
+      .mockReturnValueOnce(
+        selectWhereTerminalQuery([
+          {
+            id: "response-a",
+            respondentUuid: "respondent-a",
+            responseDataJson: JSON.stringify({
+              q1: "x",
+              q2: { row1: "a", row2: "b" },
+            }),
+            submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 0, 1)),
+          },
+          {
+            id: "response-b",
+            respondentUuid: "respondent-b",
+            // Same answers as response-a, but with both the top-level and
+            // the nested grid-row keys written in a different order.
+            responseDataJson: JSON.stringify({
+              q2: { row2: "b", row1: "a" },
+              q1: "x",
+            }),
+            submittedAt: new Date(Date.UTC(2026, 6, 30, 0, 5, 0)),
+          },
+        ]),
+      );
+
+    const body = await requestRelationGraph();
+
+    const hashByResponseId = new Map(
+      body.nodes.map((node: { responseId: string; contentHash: string }) => [
+        node.responseId,
+        node.contentHash,
+      ]),
+    );
+    expect(hashByResponseId.get("response-a")).toBeTruthy();
+    expect(hashByResponseId.get("response-a")).toBe(
+      hashByResponseId.get("response-b"),
+    );
   });
 
   it("reports node and edge truncation at graph limits", async () => {

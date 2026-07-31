@@ -567,7 +567,7 @@ export function FormResponsesContent({
       )}
 
       {state.viewMode === "graph" && (
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <section className="rounded-lg border bg-card p-3 shadow-sm">
           <ResponseRelationGraph formId={formId} />
         </section>
       )}
