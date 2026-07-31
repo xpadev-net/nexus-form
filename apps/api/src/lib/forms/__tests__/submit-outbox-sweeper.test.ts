@@ -62,10 +62,12 @@ const mockFindFormsNeedingScheduleProcessing = vi.fn(
 );
 const mockProcessMultipleFormSchedules = vi.fn(async () => ({}));
 vi.mock("../schedule-processor", () => ({
-  findFormsNeedingScheduleProcessing: (...args: unknown[]) =>
-    mockFindFormsNeedingScheduleProcessing(...args),
-  processMultipleFormSchedules: (...args: unknown[]) =>
-    mockProcessMultipleFormSchedules(...args),
+  findFormsNeedingScheduleProcessing: (
+    ...args: Parameters<typeof mockFindFormsNeedingScheduleProcessing>
+  ) => mockFindFormsNeedingScheduleProcessing(...args),
+  processMultipleFormSchedules: (
+    ...args: Parameters<typeof mockProcessMultipleFormSchedules>
+  ) => mockProcessMultipleFormSchedules(...args),
 }));
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
