@@ -1,6 +1,11 @@
 import { buildFingerprintComponentKey } from "../fingerprint";
 
-export const RESPONSE_LINK_MODEL_VERSION = "response-link-v2-rarity-shadow";
+// Bumped when this fix shipped: the API only surfaces COMPLETED runs whose
+// modelVersion matches this constant, so bumping it makes previously
+// persisted runs (computed under the old over-merging logic) stop being
+// served as "the current suspicion groups" until they are recalculated.
+export const RESPONSE_LINK_MODEL_VERSION =
+  "response-link-v2-rarity-shadow-agg-tier";
 
 export const RESPONSE_LINK_STRENGTHS = [
   "NONE",
@@ -58,6 +63,14 @@ export type RarityStats = {
   populationSize: number;
   signalPopulationByKey: Map<string, number>;
   documentFrequencyByKeyValue: Map<string, number>;
+  /**
+   * 1 = every observed signal key/value pair is unique to one response, lower
+   * values mean many responses share identical device fingerprints (e.g. a
+   * school computer lab with an identical machine image). Used to raise the
+   * bar for the multiple-device-families aggregate rule so coincidentally
+   * common configurations stop being treated as STRONG evidence on their own.
+   */
+  populationDiversityFactor: number;
 };
 
 export type FamilyContribution = {
@@ -146,6 +159,18 @@ const STRONG_DEVICE_EVIDENCE_THRESHOLD = 1.6;
 const SUPPORT_DEVICE_EVIDENCE_THRESHOLD = 0.25;
 const MIN_POPULATION_FOR_FULL_RARITY = 30;
 const RARITY_ALPHA = 1;
+const MIN_POPULATION_DIVERSITY_FACTOR = 0.2;
+
+/** Identity-anchored reasons: matching one of these means the pair shares a
+ * concrete technical identifier, not merely a coincidentally common device
+ * profile. Only these reasons should ever justify merging two responses into
+ * the same suspicion group. */
+const IDENTITY_ANCHOR_REASON_CODES = new Set([
+  "hard:session",
+  "strong:telemetry:v6",
+  "strong:visitorId-with-device-family",
+  "strong:respondentUuid-with-device",
+]);
 
 function keyValueId(key: string, valueHash: string): string {
   return `${key}\0${valueHash}`;
@@ -275,11 +300,48 @@ export function buildRarityStats(
     documentFrequency.set(key, set.size);
   }
 
+  // For each signal key, find the size of its single largest shared value
+  // (e.g. how many responses reported the exact same font list). A high
+  // share means the population is homogeneous for that signal.
+  const maxDocumentFrequencyByKey = new Map<string, number>();
+  for (const [dfKey, dfSet] of documentFrequencySets) {
+    const separatorIndex = dfKey.indexOf("\0");
+    const key = dfKey.slice(0, separatorIndex);
+    const currentMax = maxDocumentFrequencyByKey.get(key) ?? 0;
+    if (dfSet.size > currentMax) {
+      maxDocumentFrequencyByKey.set(key, dfSet.size);
+    }
+  }
+
+  // Weight each key's excess-duplication ratio by how many responses could
+  // possibly have collided for it, so a key with only a handful of
+  // observations (e.g. a rarely-collected signal that happens to collide
+  // twice) can't dominate the average and make a genuinely diverse
+  // population look artificially homogeneous. Using (maxDf - 1) / (population
+  // - 1) rather than the raw share means a population where every value is
+  // unique (maxDf === 1 for every key) yields exactly 0, so
+  // populationDiversityFactor is exactly 1 rather than merely close to it.
+  let totalDuplicateWeight = 0;
+  let totalWeight = 0;
+  for (const [key, populationCount] of signalPopulation) {
+    if (populationCount <= 1) continue;
+    const maxDf = maxDocumentFrequencyByKey.get(key) ?? 0;
+    totalDuplicateWeight += Math.max(0, maxDf - 1);
+    totalWeight += populationCount - 1;
+  }
+  const averageMaxShare =
+    totalWeight > 0 ? totalDuplicateWeight / totalWeight : 0;
+  const populationDiversityFactor = Math.max(
+    MIN_POPULATION_DIVERSITY_FACTOR,
+    1 - averageMaxShare,
+  );
+
   return {
     statsVersion: `${RESPONSE_LINK_MODEL_VERSION}:${responses.length}:${Date.now()}`,
     populationSize: responses.length,
     signalPopulationByKey: signalPopulation,
     documentFrequencyByKeyValue: documentFrequency,
+    populationDiversityFactor,
   };
 }
 
@@ -417,6 +479,24 @@ function strengthRank(strength: ResponseLinkStrength): number {
   return RESPONSE_LINK_STRENGTHS.indexOf(strength);
 }
 
+/**
+ * True when a STRONG link's only justification is the aggregate
+ * multiple-device-families score (several individually common signals summed
+ * together), with no identity-anchored reason (session/v6/visitorId/
+ * respondentUuid) backing it. Such links are real supporting evidence but are
+ * too weak on their own to merge two responses into one suspicion group or to
+ * set a group/member's technical confidence label.
+ */
+export function isAggregateOnlyLink(
+  link: Pick<ResponsePairLinkEvaluation, "strength" | "reasonCodes">,
+): boolean {
+  if (link.strength !== "STRONG") return false;
+  return (
+    link.reasonCodes.includes("strong:multiple-device-families") &&
+    !link.reasonCodes.some((code) => IDENTITY_ANCHOR_REASON_CODES.has(code))
+  );
+}
+
 function maxStrength(
   left: ResponseLinkStrength,
   right: ResponseLinkStrength,
@@ -500,9 +580,11 @@ export function evaluateResponsePairLink(
     strength = maxStrength(strength, "STRONG");
     reasonCodes.push("strong:respondentUuid-with-device");
   }
+  const aggregateDeviceEvidenceThreshold =
+    STRONG_DEVICE_EVIDENCE_THRESHOLD / stats.populationDiversityFactor;
   if (
     independentDeviceFamilyCount >= 2 &&
-    deviceEvidence >= STRONG_DEVICE_EVIDENCE_THRESHOLD
+    deviceEvidence >= aggregateDeviceEvidenceThreshold
   ) {
     strength = maxStrength(strength, "STRONG");
     reasonCodes.push("strong:multiple-device-families");
@@ -550,8 +632,15 @@ export function evaluateResponsePairLink(
 export function buildResponseSuspicionGroups(
   links: ResponsePairLinkEvaluation[],
 ): ResponseSuspicionGroupEvaluation[] {
+  // Only identity-anchored links may merge two responses together. Aggregate
+  // multiple-device-families links stay in `links` as supporting evidence for
+  // groups formed by identity anchors, but never create a new merge on their
+  // own — otherwise a chain of coincidentally-similar device profiles (e.g. a
+  // school computer lab) balloons into one falsely "confirmed" group.
   const strongLinks = links.filter(
-    (link) => link.strength === "STRONG" || link.strength === "HARD",
+    (link) =>
+      (link.strength === "STRONG" || link.strength === "HARD") &&
+      !isAggregateOnlyLink(link),
   );
   const parent = new Map<string, string>();
 
@@ -599,8 +688,14 @@ export function buildResponseSuspicionGroups(
         members.has(link.responseIdB) &&
         link.strength !== "NONE",
     );
+    // Aggregate-only links must not set the group's confidence label: a
+    // group should only read as STRONG/HARD when at least one pair inside it
+    // has identity-anchored evidence, not merely summed common signals.
     const technicalConfidence = groupLinks.reduce<ResponseLinkStrength>(
-      (current, link) => maxStrength(current, link.strength),
+      (current, link) =>
+        isAggregateOnlyLink(link)
+          ? current
+          : maxStrength(current, link.strength),
       "NONE",
     );
     const reasonCodes = [
@@ -611,15 +706,21 @@ export function buildResponseSuspicionGroups(
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
 
+    // Aggregate-only links must not count toward strongLinkCount either,
+    // otherwise the "N strong links" summary overstates the evidence even
+    // after technicalConfidence has been correctly downgraded above.
     groups.push({
       groupKey: `group-${hashString(JSON.stringify(responseIds))}`,
       technicalConfidence,
       responseIds,
       strongLinkCount: groupLinks.filter(
-        (link) => link.strength === "STRONG" || link.strength === "HARD",
+        (link) =>
+          (link.strength === "STRONG" || link.strength === "HARD") &&
+          !isAggregateOnlyLink(link),
       ).length,
-      supportLinkCount: groupLinks.filter((link) => link.strength === "SUPPORT")
-        .length,
+      supportLinkCount: groupLinks.filter(
+        (link) => link.strength === "SUPPORT" || isAggregateOnlyLink(link),
+      ).length,
       summary: { reasonCodes, topFamilies },
     });
   }

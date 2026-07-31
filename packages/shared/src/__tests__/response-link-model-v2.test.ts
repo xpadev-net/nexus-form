@@ -4,8 +4,68 @@ import {
   buildResponseSuspicionGroups,
   canonicalizeFingerprintSignal,
   evaluateResponsePairLink,
+  isAggregateOnlyLink,
   type ResponseLinkAnalysisResponse,
 } from "../forms/response-link-model-v2";
+
+/** Components spread across several families so a shared device image
+ * produces enough combined evidence to approach the multiple-device-families
+ * threshold, mirroring what a homogeneous population (e.g. a school computer
+ * lab with an identical machine image) looks like in production. */
+const DEVICE_IMAGE_COMPONENTS: Array<[string, string]> = [
+  ["fingerprintjs", "fonts"],
+  ["fingerprintjs", "canvas"],
+  ["fingerprintjs", "webgl"],
+  ["fingerprintjs", "webGlBasics"],
+  ["fingerprintjs", "system"],
+  ["fingerprintjs", "userAgentData"],
+  ["fingerprintjs", "hardwareConcurrency"],
+  ["fingerprintjs", "audio"],
+  ["fingerprintjs", "screenResolution"],
+];
+
+function deviceImageResponse(
+  id: string,
+  sharesDeviceImage: boolean,
+  options: { v6?: string; visitorId?: string } = {},
+): ResponseLinkAnalysisResponse {
+  return {
+    id,
+    sessionId: null,
+    respondentUuid: `respondent-${id}`,
+    userAgent: null,
+    fingerprintDetails: [
+      ...DEVICE_IMAGE_COMPONENTS.map(([fingerprintType, componentName]) => ({
+        responseId: id,
+        fingerprintType,
+        componentName,
+        componentValueHash: sharesDeviceImage
+          ? `shared-${componentName}`
+          : `unique-${componentName}-${id}`,
+      })),
+      ...(options.v6
+        ? [
+            {
+              responseId: id,
+              fingerprintType: "telemetry",
+              componentName: "v6",
+              componentValueHash: options.v6,
+            },
+          ]
+        : []),
+      ...(options.visitorId
+        ? [
+            {
+              responseId: id,
+              fingerprintType: "fingerprintjs",
+              componentName: "visitorId",
+              componentValueHash: options.visitorId,
+            },
+          ]
+        : []),
+    ],
+  };
+}
 
 function response(
   id: string,
@@ -120,5 +180,105 @@ describe("response-link-model-v2", () => {
 
     expect(link.strength).toBe("SUPPORT");
     expect(buildResponseSuspicionGroups([link])).toEqual([]);
+  });
+
+  it("raises the multiple-device-families bar when a subset of the population shares an identical device image", () => {
+    const populationSize = 40;
+    const sharedClusterSize = 8;
+    const responses: ResponseLinkAnalysisResponse[] = [];
+    for (let i = 0; i < populationSize; i += 1) {
+      responses.push(deviceImageResponse(`r${i}`, i < sharedClusterSize));
+    }
+    const stats = buildRarityStats(responses);
+    expect(stats.populationDiversityFactor).toBeLessThan(1);
+
+    const clusterMembers = responses.slice(0, sharedClusterSize);
+    const links = [];
+    for (let i = 0; i < clusterMembers.length; i += 1) {
+      for (let j = i + 1; j < clusterMembers.length; j += 1) {
+        const a = clusterMembers[i];
+        const b = clusterMembers[j];
+        if (!a || !b) continue;
+        links.push(evaluateResponsePairLink(a, b, stats));
+      }
+    }
+
+    // Identical device signals still generate evidence, but not enough on
+    // their own to declare these unrelated respondents STRONG-linked.
+    expect(links.every((link) => link.strength !== "STRONG")).toBe(true);
+    expect(buildResponseSuspicionGroups(links)).toEqual([]);
+  });
+
+  it("does not let a coincidentally-similar device profile drag an unrelated response into a confirmed group", () => {
+    const populationSize = 40;
+    const responses: ResponseLinkAnalysisResponse[] = [
+      deviceImageResponse("A", true, { v6: "v6-shared" }),
+      deviceImageResponse("B", true, { v6: "v6-shared" }),
+      deviceImageResponse("C", true),
+    ];
+    for (let i = 3; i < populationSize; i += 1) {
+      responses.push(deviceImageResponse(`r${i}`, false));
+    }
+    const stats = buildRarityStats(responses);
+
+    const [a, b, c] = responses;
+    if (!a || !b || !c) throw new Error("test fixture missing responses");
+    const linkAB = evaluateResponsePairLink(a, b, stats);
+    const linkAC = evaluateResponsePairLink(a, c, stats);
+    const linkBC = evaluateResponsePairLink(b, c, stats);
+
+    expect(linkAB.reasonCodes).toContain("strong:telemetry:v6");
+    expect(isAggregateOnlyLink(linkAB)).toBe(false);
+    expect(isAggregateOnlyLink(linkAC)).toBe(true);
+    expect(isAggregateOnlyLink(linkBC)).toBe(true);
+
+    const groups = buildResponseSuspicionGroups([linkAB, linkAC, linkBC]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      responseIds: ["A", "B"],
+      technicalConfidence: "STRONG",
+    });
+  });
+
+  it("excludes an aggregate-only link from strongLinkCount even when it sits inside an identity-anchored group", () => {
+    const populationSize = 40;
+    const responses: ResponseLinkAnalysisResponse[] = [
+      // A-B share a v6 identity anchor; A-C share a visitorId identity
+      // anchor. B-C only share the coincidental device image, with no
+      // identity anchor of their own.
+      deviceImageResponse("A", true, {
+        v6: "v6-shared",
+        visitorId: "visitor-ac",
+      }),
+      deviceImageResponse("B", true, { v6: "v6-shared" }),
+      deviceImageResponse("C", true, { visitorId: "visitor-ac" }),
+    ];
+    for (let i = 3; i < populationSize; i += 1) {
+      responses.push(deviceImageResponse(`r${i}`, false));
+    }
+    const stats = buildRarityStats(responses);
+
+    const [a, b, c] = responses;
+    if (!a || !b || !c) throw new Error("test fixture missing responses");
+    const linkAB = evaluateResponsePairLink(a, b, stats);
+    const linkAC = evaluateResponsePairLink(a, c, stats);
+    const linkBC = evaluateResponsePairLink(b, c, stats);
+
+    expect(isAggregateOnlyLink(linkAB)).toBe(false);
+    expect(isAggregateOnlyLink(linkAC)).toBe(false);
+    expect(linkBC.strength).toBe("STRONG");
+    expect(isAggregateOnlyLink(linkBC)).toBe(true);
+
+    const groups = buildResponseSuspicionGroups([linkAB, linkAC, linkBC]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      responseIds: ["A", "B", "C"],
+      technicalConfidence: "STRONG",
+      // Only the two identity-anchored links (A-B, A-C) should count as
+      // strong; the aggregate-only B-C link must be reported as support
+      // even though its raw strength is STRONG.
+      strongLinkCount: 2,
+      supportLinkCount: 1,
+    });
   });
 });

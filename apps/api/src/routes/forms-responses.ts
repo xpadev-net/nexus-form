@@ -23,6 +23,7 @@ import {
   genericValidationJobDataSchema,
   getValidationResultId,
   groupResponseExportValidationOutputsByResponseId,
+  isAggregateOnlyLink,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
@@ -739,6 +740,7 @@ async function getLiveResponseSuspicionGroupAggregates(
       responseIdA: responsePairLink.responseIdA,
       responseIdB: responsePairLink.responseIdB,
       strength: responsePairLink.strength,
+      breakdownJson: responsePairLink.breakdownJson,
     })
     .from(responsePairLink)
     .where(
@@ -753,14 +755,25 @@ async function getLiveResponseSuspicionGroupAggregates(
     const leftGroups = groupsByResponseId.get(link.responseIdA);
     const rightGroups = groupsByResponseId.get(link.responseIdB);
     if (!leftGroups || !rightGroups) continue;
+    // Aggregate-only STRONG links (multiple-device-families with no
+    // identity anchor) must not inflate the "strong links" count shown to
+    // reviewers, matching how the analysis run itself scores confidence.
+    const { reasonCodes } = parsePairBreakdown(link.breakdownJson);
+    const isAggregateOnly = isAggregateOnlyLink({
+      strength: link.strength,
+      reasonCodes,
+    });
     for (const groupId of leftGroups) {
       if (!rightGroups.has(groupId)) continue;
       if (denseGroups.has(groupId)) continue;
       const aggregate = aggregates.get(groupId);
       if (!aggregate) continue;
-      if (link.strength === "STRONG" || link.strength === "HARD") {
+      if (
+        (link.strength === "STRONG" || link.strength === "HARD") &&
+        !isAggregateOnly
+      ) {
         aggregate.strongLinkCount += 1;
-      } else if (link.strength === "SUPPORT") {
+      } else if (link.strength === "SUPPORT" || isAggregateOnly) {
         aggregate.supportLinkCount += 1;
       }
     }
