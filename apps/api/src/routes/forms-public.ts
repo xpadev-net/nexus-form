@@ -31,10 +31,13 @@ import {
   type FormStatusValue,
   genericValidationJobDataSchema,
   getValidationResultId,
+  MAX_REPORTED_FINGERPRINTS,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   MIN_SECURITY_OBSERVATION_COUNT,
+  type ReportedFingerprintEntry,
+  reportedFingerprintEntrySchema,
   responsePayloadItemSchema,
   SECURITY_OBSERVATION_FAMILY_BROWSER,
   SECURITY_OBSERVATION_FAMILY_FPJS,
@@ -114,7 +117,6 @@ const FINGERPRINT_COLLECTOR_VERSION = "nf-web-1";
 const FINGERPRINT_EXCHANGE_VERSION = 1;
 const FINGERPRINT_CHALLENGE_TTL_MS = 3 * 60 * 1000;
 const FINGERPRINT_COLLECTION_TTL_MS = 5 * 60 * 1000;
-const TEST_FINGERPRINT_COLLECTION_TOKEN = "test-security-check-token";
 const SECURITY_EXCHANGE_COOKIE_NAME = "nf_sc";
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
@@ -237,11 +239,11 @@ const exchangeCloseSchema = z
     r: z.string().min(1).max(MAX_TOKEN_LENGTH),
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
-    p: z.string().min(1).max(MAX_TOKEN_LENGTH),
     d: z
       .array(securityEvidenceEntrySchema)
       .min(MIN_SECURITY_OBSERVATION_COUNT)
       .max(512),
+    fp: z.array(reportedFingerprintEntrySchema).max(MAX_REPORTED_FINGERPRINTS),
   })
   .strict();
 
@@ -560,21 +562,9 @@ const exchangeServerContextSchema = z.object({
   ),
 });
 
-type ResponseFingerprintEvidence = {
-  type: string;
-  name: string;
-  value_hash: string;
-};
-
-const responseFingerprintEvidenceSchema = z.object({
-  type: z.string(),
-  name: z.string(),
-  value_hash: z.string(),
-});
-
 const exchangeObservationContextSchema = z.object({
   d: z.string().length(64),
-  fp: z.array(responseFingerprintEvidenceSchema).optional(),
+  fp: z.array(reportedFingerprintEntrySchema).max(MAX_REPORTED_FINGERPRINTS),
 });
 
 type ExchangeObservationTuple = z.infer<
@@ -597,16 +587,6 @@ const securityObservationTemplate = [
     c: entry.code,
   })),
 ] satisfies Array<Omit<SecurityObservationPlanEntry, "a">>;
-
-const securityObservationComponentByPlanKey = new Map(
-  securityObservationComponentMap.map((entry) => [
-    `${entry.family}:${entry.code}`,
-    {
-      fingerprintType: entry.fingerprintType,
-      componentName: entry.componentName,
-    },
-  ]),
-);
 
 function buildSecurityObservationPlan(): SecurityObservationPlanEntry[] {
   const plan = securityObservationTemplate.map((entry) => ({
@@ -688,41 +668,6 @@ function digestSecurityObservations(params: {
       String(families.size),
     ].join("\0"),
   );
-}
-
-function buildResponseFingerprintsFromSecurityEvidence(params: {
-  evidence: ExchangeObservationTuple[];
-  plan: SecurityObservationPlanEntry[];
-}): ResponseFingerprintEvidence[] {
-  const planBySlot = new Map(params.plan.map((entry) => [entry.a, entry]));
-  const seenSlots = new Set<string>();
-  const seenComponents = new Set<string>();
-  return params.evidence.map(([slot, digest]) => {
-    if (seenSlots.has(slot)) {
-      throw new FingerprintCollectionTokenError();
-    }
-    seenSlots.add(slot);
-    const planEntry = planBySlot.get(slot);
-    if (!planEntry) {
-      throw new FingerprintCollectionTokenError();
-    }
-    const component = securityObservationComponentByPlanKey.get(
-      `${planEntry.f}:${planEntry.c}`,
-    );
-    if (!component || component.componentName !== planEntry.n) {
-      throw new FingerprintCollectionTokenError();
-    }
-    const componentKey = `${component.fingerprintType}:${component.componentName}`;
-    if (seenComponents.has(componentKey)) {
-      throw new FingerprintCollectionTokenError();
-    }
-    seenComponents.add(componentKey);
-    return {
-      type: component.fingerprintType,
-      name: component.componentName,
-      value_hash: digest,
-    };
-  });
 }
 
 function getCookieValue(request: Request, cookieName: string): string | null {
@@ -852,7 +797,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
   userAgent: string | undefined;
 }): Promise<{
   attemptId: string | null;
-  fingerprints: ResponseFingerprintEvidence[];
+  fingerprints: ReportedFingerprintEntry[];
 }> {
   if (process.env.NODE_ENV === "test" && !params.receipt) {
     return {
@@ -913,7 +858,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
 
   return {
     attemptId: attempt.id,
-    fingerprints: observationContext.data.fp ?? [],
+    fingerprints: observationContext.data.fp,
   };
 }
 
@@ -1316,14 +1261,6 @@ export const formsPublicRouter = createHonoApp()
 
       try {
         assertSecurityExchangeRequestContext(c.req.raw);
-        if (!isFormSecurityBypassEnabled()) {
-          const captchaValid = await verifyHCaptcha(payload.p, {
-            remoteip: ipResult.ip,
-          });
-          if (!captchaValid) {
-            throw new Error("Invalid security exchange proof");
-          }
-        }
         let collectionToken = "";
         let observationDigest = "";
         const collectionExpiresAt = new Date(
@@ -1407,17 +1344,12 @@ export const formsPublicRouter = createHonoApp()
             publicId,
           });
 
-          const fingerprints = buildResponseFingerprintsFromSecurityEvidence({
-            evidence: payload.d,
-            plan: serverContext.s,
-          });
-
           await tx
             .update(fingerprintCollectionAttempt)
             .set({
               collectionTokenHash: hashExchangeToken(collectionToken),
               collectionExpiresAt,
-              observationDigestJson: { d: observationDigest, fp: fingerprints },
+              observationDigestJson: { d: observationDigest, fp: payload.fp },
               finalizedAt: currentTime,
             })
             .where(eq(fingerprintCollectionAttempt.id, attempt.id));
@@ -1479,15 +1411,11 @@ export const formsPublicRouter = createHonoApp()
             new Date(),
           )
         : null;
-      const securityReceiptMatchesRoute =
-        verifiedSecurityReceipt?.publicId === publicId ||
-        (process.env.NODE_ENV === "test" &&
-          payload.securityVerificationToken ===
-            TEST_FINGERPRINT_COLLECTION_TOKEN);
 
-      // 1. Security exchange close verifies hCaptcha for the normal path. Keep
-      // submit-side validation for bypass and malformed legacy-style requests.
-      if (formSecurityBypassEnabled || !securityReceiptMatchesRoute) {
+      // 1. hCaptcha is verified here at submit time (not during the security
+      // exchange), so a solved challenge is required right before the
+      // response is written.
+      if (!formSecurityBypassEnabled) {
         const captchaValid = await verifyHCaptcha(payload.captchaToken, {
           remoteip: ip,
         });

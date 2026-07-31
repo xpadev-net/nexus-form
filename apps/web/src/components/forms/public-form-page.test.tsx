@@ -1066,7 +1066,7 @@ describe("PublicFormPage", () => {
     });
   });
 
-  it("exchanges security data before submitting and sends only the collection token", async () => {
+  it("exchanges security data before submitting and reports hashed fingerprints capped at the limit", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     publicFormData = {
       form: {
@@ -1146,27 +1146,33 @@ describe("PublicFormPage", () => {
       json: expect.objectContaining({
         d: expect.arrayContaining([[expect.any(String), expect.any(String)]]),
         n: expect.any(String),
-        p: "form-security-dev-bypass",
         r: "challenge-token",
         v: 1,
       }),
     });
     expect(apiMocks.submitPost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
-      json: expect.objectContaining({
+      json: {
         responses: [],
         captchaToken: "form-security-dev-bypass",
         telemetry: { v4Token: "telemetry-token" },
         securityVerificationToken: "collection-token",
-      }),
+      },
     });
-    const submitArgs = apiMocks.submitPost.mock.calls[0]?.[0];
-    expect(submitArgs?.json).not.toHaveProperty("fingerprints");
     const closeArgs = apiMocks.exchangeClosePost.mock.calls[0]?.[0];
-    expect(closeArgs?.json).not.toHaveProperty("b");
-    expect(JSON.stringify(closeArgs?.json)).not.toContain("visitorId");
-    expect(JSON.stringify(closeArgs?.json)).not.toContain("value_hash");
-    expect(JSON.stringify(closeArgs?.json)).not.toContain("hash-");
+    const reportedFingerprints = (
+      closeArgs?.json as {
+        fp?: Array<{ type: string; name: string }>;
+      }
+    ).fp;
+    expect(reportedFingerprints).toBeDefined();
+    expect(reportedFingerprints?.length).toBeLessThanOrEqual(200);
+    expect(reportedFingerprints).toEqual(
+      expect.arrayContaining([
+        { type: "browser", name: "timezone", value_hash: testDigest(0) },
+      ]),
+    );
+    expect(closeArgs?.json).not.toHaveProperty("p");
 
     await act(async () => {
       root.unmount();

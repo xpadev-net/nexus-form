@@ -966,7 +966,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
   );
 
   it(
-    "persists security exchange observations in FingerprintDetail for compatibility",
+    "persists the full client-reported fingerprint set alongside telemetry in FingerprintDetail",
     async () => {
       const { db } = await import("@nexus-form/database");
       const schema = await import("@nexus-form/database/schema");
@@ -1004,7 +1004,14 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         formId: FORM_ID,
         publicId: "test-public-id",
       });
-      const securityFingerprints = securityEvidenceFingerprints();
+      const clientFingerprints = [
+        ...securityEvidenceFingerprints(),
+        {
+          type: "thumbmarkjs",
+          name: "audio",
+          value_hash: "b".repeat(64),
+        },
+      ];
       let insertedFingerprints: unknown;
       const txInsert = vi.fn((table: unknown) => ({
         values: vi.fn(async (values: unknown) => {
@@ -1029,7 +1036,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   collectionExpiresAt: new Date(Date.now() + 60_000),
                   observationDigestJson: {
                     d: observationDigest,
-                    fp: securityFingerprints,
+                    fp: clientFingerprints,
                   },
                   consumedAt: null,
                   finalizedAt: new Date(),
@@ -1065,7 +1072,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
 
       expect(res.status).toBe(201);
       expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
-      expect(insertedFingerprints).toHaveLength(9);
+      expect(insertedFingerprints).toHaveLength(10);
       expect(insertedFingerprints).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -1092,6 +1099,11 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             fingerprintType: "fingerprintjs",
             componentName: "screen",
             componentValueHash: "7".repeat(64),
+          }),
+          expect.objectContaining({
+            fingerprintType: "thumbmarkjs",
+            componentName: "audio",
+            componentValueHash: "b".repeat(64),
           }),
         ]),
       );
@@ -1382,7 +1394,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             r: "missing-challenge",
             v: 1,
             n: "client-nonce",
-            p: "test-captcha-token",
+            fp: [],
             d: securityEvidenceTuples(),
           }),
         },
@@ -1416,7 +1428,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             r: "challenge",
             v: 1,
             n: "nonce",
-            p: "test-captcha-token",
+            fp: [],
             d: securityEvidenceTuples(),
             require_fingerprint: true,
           }),
@@ -1484,7 +1496,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             r: "challenge",
             v: 1,
             n: "client-nonce",
-            p: "test-captcha-token",
+            fp: [],
             d: securityEvidenceTuples(),
           }),
         },
@@ -1551,7 +1563,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             r: "challenge",
             v: 1,
             n: "client-nonce",
-            p: "test-captcha-token",
+            fp: [],
             d: securityEvidenceTuples(),
           }),
         },
@@ -1623,7 +1635,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             r: "challenge",
             v: 1,
             n: "client-nonce",
-            p: "test-captcha-token",
+            fp: [],
             d: duplicatedEvidence,
           }),
         },
@@ -1690,7 +1702,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             r: "challenge",
             v: 1,
             n: "client-nonce",
-            p: "test-captcha-token",
+            fp: [],
             d: securityEvidenceTuples(),
           }),
         },
@@ -1789,7 +1801,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             r: "challenge",
             v: 1,
             n: "client-nonce",
-            p: "test-captcha-token",
+            fp: [],
             d: securityEvidenceTuples(),
           }),
         },
