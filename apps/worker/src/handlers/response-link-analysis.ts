@@ -17,6 +17,7 @@ import {
   buildResponseSuspicionGroups,
   evaluateResponsePairLink,
   getResponseLinkAnalysisDirtyKey,
+  isAggregateOnlyLink,
   RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
   RESPONSE_LINK_ANALYSIS_QUEUE,
   RESPONSE_LINK_MODEL_VERSION,
@@ -873,11 +874,19 @@ async function persistResults(params: {
 
       const memberRows = group.responseIds.map((responseId) => {
         const memberLinks = linksByResponseId.get(responseId) ?? [];
+        // Aggregate-only links (coincidentally common device signals summed
+        // together) are downgraded to SUPPORT for this member's own badge so
+        // a response merged into the group solely via that weak evidence
+        // isn't shown as HARD/STRONG confirmed.
         const strongest = memberLinks.reduce<ResponseLinkStrength>(
-          (current, link) =>
-            strengthRank(link.strength) > strengthRank(current)
-              ? link.strength
-              : current,
+          (current, link) => {
+            const effectiveStrength = isAggregateOnlyLink(link)
+              ? "SUPPORT"
+              : link.strength;
+            return strengthRank(effectiveStrength) > strengthRank(current)
+              ? effectiveStrength
+              : current;
+          },
           group.strongLinkCount + group.supportLinkCount > 0
             ? group.technicalConfidence
             : "NONE",

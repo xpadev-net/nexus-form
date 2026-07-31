@@ -126,6 +126,7 @@ export {
   canonicalizeFingerprintSignal,
   canonicalizeResponseSignals,
   evaluateResponsePairLink,
+  isAggregateOnlyLink,
   RESPONSE_LINK_FAMILIES,
   RESPONSE_LINK_MODEL_VERSION,
   RESPONSE_LINK_STRENGTHS,
