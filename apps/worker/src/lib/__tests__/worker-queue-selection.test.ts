@@ -79,16 +79,16 @@ describe("selectWorkerQueues", () => {
     });
   });
 
-  it.each([
-    "",
-    " , ",
-  ])("treats %j as an explicit empty queue selection", (workerQueuesEnv) => {
-    expect(selectWorkerQueues(providers, workerQueuesEnv)).toEqual({
-      validationQueues: [],
-      includeSheetsSync: false,
-      includeFormSubmitNotifications: false,
-      includeResponseLinkAnalysis: false,
-      unknownQueues: [],
-    });
-  });
+  it.each(["", " , "])(
+    "treats %j as an explicit empty queue selection",
+    (workerQueuesEnv) => {
+      expect(selectWorkerQueues(providers, workerQueuesEnv)).toEqual({
+        validationQueues: [],
+        includeSheetsSync: false,
+        includeFormSubmitNotifications: false,
+        includeResponseLinkAnalysis: false,
+        unknownQueues: [],
+      });
+    },
+  );
 });

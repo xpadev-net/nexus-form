@@ -302,43 +302,41 @@ describe("API Route Integration Tests", () => {
         nodeEnv: "development",
         ip: "203.0.113.77",
       },
-    ])("sets a Secure invitation cookie outside local HTTP development ($url, $origin, $nodeEnv)", async ({
-      url,
-      origin,
-      nodeEnv,
-      ip,
-    }) => {
-      const originalCode = process.env.SIGNUP_INVITATION_CODE;
-      const originalNodeEnv = process.env.NODE_ENV;
-      process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
-      process.env.NODE_ENV = nodeEnv;
+    ])(
+      "sets a Secure invitation cookie outside local HTTP development ($url, $origin, $nodeEnv)",
+      async ({ url, origin, nodeEnv, ip }) => {
+        const originalCode = process.env.SIGNUP_INVITATION_CODE;
+        const originalNodeEnv = process.env.NODE_ENV;
+        process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
+        process.env.NODE_ENV = nodeEnv;
 
-      try {
-        const res = await app.request(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Origin: origin,
-            "x-forwarded-for": ip,
-          },
-          body: JSON.stringify({ code: "valid-invitation-code" }),
-        });
+        try {
+          const res = await app.request(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Origin: origin,
+              "x-forwarded-for": ip,
+            },
+            body: JSON.stringify({ code: "valid-invitation-code" }),
+          });
 
-        expect(res.status).toBe(200);
-        expect(res.headers.get("set-cookie")).toContain("Secure");
-      } finally {
-        if (originalCode === undefined) {
-          delete process.env.SIGNUP_INVITATION_CODE;
-        } else {
-          process.env.SIGNUP_INVITATION_CODE = originalCode;
+          expect(res.status).toBe(200);
+          expect(res.headers.get("set-cookie")).toContain("Secure");
+        } finally {
+          if (originalCode === undefined) {
+            delete process.env.SIGNUP_INVITATION_CODE;
+          } else {
+            process.env.SIGNUP_INVITATION_CODE = originalCode;
+          }
+          if (originalNodeEnv === undefined) {
+            delete process.env.NODE_ENV;
+          } else {
+            process.env.NODE_ENV = originalNodeEnv;
+          }
         }
-        if (originalNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = originalNodeEnv;
-        }
-      }
-    });
+      },
+    );
 
     it("fails closed when invitation authorization cannot be persisted", async () => {
       const originalCode = process.env.SIGNUP_INVITATION_CODE;

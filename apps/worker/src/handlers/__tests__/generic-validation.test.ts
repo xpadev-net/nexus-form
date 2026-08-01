@@ -1656,36 +1656,39 @@ describe("handleGenericValidation", () => {
   it.each([
     ["timeout", "TIMEOUT"],
     ["5xx", "GITHUB_API_ERROR"],
-  ])("GitHub retryable %s result without retryAfter は最終試行前に BullMQ retry へ委譲し結果を書かない", async (_caseName, errorCode) => {
-    const safeGitHubApiFailureMessage =
-      "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
-    const rule = makeRule({
-      validate: vi.fn().mockResolvedValue({
-        isValid: false,
-        retryable: true,
-        errorCode,
-        errorMessage: safeGitHubApiFailureMessage,
-      }),
-    });
-    const provider = makeProvider(rule);
-    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "github" });
-    const job = makeJob({
-      responseId: "r-1",
-      ruleId: "rule-1",
-      referencedBlockId: "block-a",
-      snapshotProviderName: "github",
-      snapshotRuleType: "default",
-      attemptsMade: 1,
-    });
+  ])(
+    "GitHub retryable %s result without retryAfter は最終試行前に BullMQ retry へ委譲し結果を書かない",
+    async (_caseName, errorCode) => {
+      const safeGitHubApiFailureMessage =
+        "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
+      const rule = makeRule({
+        validate: vi.fn().mockResolvedValue({
+          isValid: false,
+          retryable: true,
+          errorCode,
+          errorMessage: safeGitHubApiFailureMessage,
+        }),
+      });
+      const provider = makeProvider(rule);
+      mockProviderRegistryGet.mockReturnValue({ ...provider, name: "github" });
+      const job = makeJob({
+        responseId: "r-1",
+        ruleId: "rule-1",
+        referencedBlockId: "block-a",
+        snapshotProviderName: "github",
+        snapshotRuleType: "default",
+        attemptsMade: 1,
+      });
 
-    await expect(handleGenericValidation(job)).rejects.toThrow(
-      safeGitHubApiFailureMessage,
-    );
+      await expect(handleGenericValidation(job)).rejects.toThrow(
+        safeGitHubApiFailureMessage,
+      );
 
-    expect(job.moveToDelayed).not.toHaveBeenCalled();
-    expect(job.updateData).not.toHaveBeenCalled();
-    expect(mockWriteValidationResult).not.toHaveBeenCalled();
-  });
+      expect(job.moveToDelayed).not.toHaveBeenCalled();
+      expect(job.updateData).not.toHaveBeenCalled();
+      expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    },
+  );
 
   it("GitHub retryable result without retryAfter は最終 BullMQ attempt で安全な失敗理由を書き込み遅延再試行しない", async () => {
     const safeGitHubApiFailureMessage =
@@ -2392,51 +2395,51 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
-  it.each([
-    502, 503, 504,
-  ])("リトライ可能なエラーはスローして再キューさせる (HTTP %i)", async (status) => {
-    const gatewayErr = Object.assign(new Error(`Gateway error ${status}`), {
-      status,
-    });
-    const rule = makeRule({
-      validate: vi.fn().mockRejectedValue(gatewayErr),
-    });
-    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
-    const job = makeJob({
-      responseId: "r-1",
-      ruleId: "rule-1",
-      referencedBlockId: "block-a",
-    });
+  it.each([502, 503, 504])(
+    "リトライ可能なエラーはスローして再キューさせる (HTTP %i)",
+    async (status) => {
+      const gatewayErr = Object.assign(new Error(`Gateway error ${status}`), {
+        status,
+      });
+      const rule = makeRule({
+        validate: vi.fn().mockRejectedValue(gatewayErr),
+      });
+      mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+      const job = makeJob({
+        responseId: "r-1",
+        ruleId: "rule-1",
+        referencedBlockId: "block-a",
+      });
 
-    await expect(handleGenericValidation(job)).rejects.toThrow(
-      `Gateway error ${status}`,
-    );
-    expect(mockWriteValidationResult).not.toHaveBeenCalled();
-  });
+      await expect(handleGenericValidation(job)).rejects.toThrow(
+        `Gateway error ${status}`,
+      );
+      expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    },
+  );
 
-  it.each([
-    "NETWORK_ERROR",
-    "TIMEOUT",
-    "GITHUB_API_RATE_LIMIT",
-  ])("リトライ可能なエラーはスローして再キューさせる (プロバイダードメインコード %s)", async (code) => {
-    const domainErr = Object.assign(new Error(`Provider error: ${code}`), {
-      code,
-    });
-    const rule = makeRule({
-      validate: vi.fn().mockRejectedValue(domainErr),
-    });
-    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
-    const job = makeJob({
-      responseId: "r-1",
-      ruleId: "rule-1",
-      referencedBlockId: "block-a",
-    });
+  it.each(["NETWORK_ERROR", "TIMEOUT", "GITHUB_API_RATE_LIMIT"])(
+    "リトライ可能なエラーはスローして再キューさせる (プロバイダードメインコード %s)",
+    async (code) => {
+      const domainErr = Object.assign(new Error(`Provider error: ${code}`), {
+        code,
+      });
+      const rule = makeRule({
+        validate: vi.fn().mockRejectedValue(domainErr),
+      });
+      mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+      const job = makeJob({
+        responseId: "r-1",
+        ruleId: "rule-1",
+        referencedBlockId: "block-a",
+      });
 
-    await expect(handleGenericValidation(job)).rejects.toThrow(
-      `Provider error: ${code}`,
-    );
-    expect(mockWriteValidationResult).not.toHaveBeenCalled();
-  });
+      await expect(handleGenericValidation(job)).rejects.toThrow(
+        `Provider error: ${code}`,
+      );
+      expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    },
+  );
 
   it("response が null の provider error でも retryable code を保持する", async () => {
     const domainErr = Object.assign(new Error("Provider connection refused"), {

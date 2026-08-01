@@ -330,18 +330,21 @@ describe("Better Auth invitation admission handler", () => {
     ["not-an-origin", "malformed"],
     ["https://*.example.com", "wildcard"],
     ["https://app.example.com,not-an-origin", "mixed valid and invalid"],
-  ])("rejects %s production TRUSTED_ORIGINS during direct auth construction (%s)", async (trustedOrigins, _description) => {
-    vi.stubEnv("NODE_ENV", "production");
-    if (trustedOrigins === undefined) {
-      delete process.env.TRUSTED_ORIGINS;
-    } else {
-      vi.stubEnv("TRUSTED_ORIGINS", trustedOrigins);
-    }
+  ])(
+    "rejects %s production TRUSTED_ORIGINS during direct auth construction (%s)",
+    async (trustedOrigins, _description) => {
+      vi.stubEnv("NODE_ENV", "production");
+      if (trustedOrigins === undefined) {
+        delete process.env.TRUSTED_ORIGINS;
+      } else {
+        vi.stubEnv("TRUSTED_ORIGINS", trustedOrigins);
+      }
 
-    await expect(import("../lib/auth")).rejects.toThrow(
-      "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
-    );
-  });
+      await expect(import("../lib/auth")).rejects.toThrow(
+        "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
+      );
+    },
+  );
 
   it("rejects an untrusted cookie origin at the Better Auth boundary", async () => {
     expect(() =>

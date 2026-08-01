@@ -335,29 +335,29 @@ describe("public password request limits", () => {
   it.each([
     { password: "wrong-password", valid: false },
     { password: "correct-password", valid: true },
-  ])("preserves ordinary $password verification", async ({
-    password,
-    valid,
-  }) => {
-    setPublishedForm();
-    setPasswordSnapshot();
-    mocks.verifyPassword.mockResolvedValueOnce(valid);
-    const { formsPublicRouter } = await import("../routes/forms-public");
+  ])(
+    "preserves ordinary $password verification",
+    async ({ password, valid }) => {
+      setPublishedForm();
+      setPasswordSnapshot();
+      mocks.verifyPassword.mockResolvedValueOnce(valid);
+      const { formsPublicRouter } = await import("../routes/forms-public");
 
-    const response = await formsPublicRouter.request(
-      "/public/public-id/verify-password",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ password }),
-      },
-    );
+      const response = await formsPublicRouter.request(
+        "/public/public-id/verify-password",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ password }),
+        },
+      );
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ valid });
-    expect(mocks.verifyPassword).toHaveBeenCalledWith(
-      password,
-      "stored-password-hash",
-    );
-  });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ valid });
+      expect(mocks.verifyPassword).toHaveBeenCalledWith(
+        password,
+        "stored-password-hash",
+      );
+    },
+  );
 });

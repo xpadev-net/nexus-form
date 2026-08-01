@@ -498,22 +498,25 @@ describe("githubProvider.rules.user_exists.validate", () => {
     ["missing username", { username: undefined }],
     ["non-numeric userId", { userId: "not-a-number" }],
     ["invalid createdAt", { createdAt: "not-a-date" }],
-  ])("does not treat malformed GitHub user data as successful validation (%s)", async (_caseName, override) => {
-    getUserByUsernameMock.mockResolvedValueOnce({
-      ...validUserData,
-      ...override,
-    });
+  ])(
+    "does not treat malformed GitHub user data as successful validation (%s)",
+    async (_caseName, override) => {
+      getUserByUsernameMock.mockResolvedValueOnce({
+        ...validUserData,
+        ...override,
+      });
 
-    const result = await githubProvider.rules.user_exists?.validate(
-      "octocat",
-      {},
-    );
+      const result = await githubProvider.rules.user_exists?.validate(
+        "octocat",
+        {},
+      );
 
-    expect(result).toMatchObject({
-      isValid: false,
-      errorCode: GitHubErrorCode.GITHUB_API_ERROR,
-      errorMessage: "Invalid GitHub API response schema",
-    });
-    expect(result).not.toHaveProperty("metadata");
-  });
+      expect(result).toMatchObject({
+        isValid: false,
+        errorCode: GitHubErrorCode.GITHUB_API_ERROR,
+        errorMessage: "Invalid GitHub API response schema",
+      });
+      expect(result).not.toHaveProperty("metadata");
+    },
+  );
 });

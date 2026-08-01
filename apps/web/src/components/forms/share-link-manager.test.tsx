@@ -468,21 +468,26 @@ describe("ShareLinkManager", () => {
       "Share link not found",
       "削除済み: この共有リンクは削除済み、または無効化されています。",
     ],
-  ])("shows a distinct failure copy for %s", (_label, apiError, expectedCopy) => {
-    mocks.shareLinksQuery = {
-      ...mocks.shareLinksQuery,
-      data: undefined,
-      error: apiError instanceof Error ? apiError : new Error(apiError),
-      isError: true,
-    };
-    const container = document.createElement("div");
-    const root = renderManager(container);
+  ])(
+    "shows a distinct failure copy for %s",
+    (_label, apiError, expectedCopy) => {
+      mocks.shareLinksQuery = {
+        ...mocks.shareLinksQuery,
+        data: undefined,
+        error: apiError instanceof Error ? apiError : new Error(apiError),
+        isError: true,
+      };
+      const container = document.createElement("div");
+      const root = renderManager(container);
 
-    expect(container.textContent).toContain(expectedCopy);
-    expect(container.textContent).not.toContain("共有リンクはまだありません。");
+      expect(container.textContent).toContain(expectedCopy);
+      expect(container.textContent).not.toContain(
+        "共有リンクはまだありません。",
+      );
 
-    act(() => root.unmount());
-  });
+      act(() => root.unmount());
+    },
+  );
 
   it("lets users dismiss the manual copy URL panel", async () => {
     mocks.copyShareLinkUrl.mockResolvedValueOnce({

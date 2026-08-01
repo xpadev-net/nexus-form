@@ -220,29 +220,28 @@ describe("database migration connection readiness", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it.each([
-    "PROTOCOL_CONNECTION_LOST",
-    "ECONNRESET",
-    "ETIMEDOUT",
-  ])("exhausts bounded retries for transient %s failures", async (code) => {
-    const error = connectionError(code);
-    const failedPools = Array.from({ length: 3 }, () =>
-      createRejectedPreflightPool(error),
-    );
-    for (const pool of failedPools) {
-      moduleMocks.createPool.mockReturnValueOnce(pool);
-    }
+  it.each(["PROTOCOL_CONNECTION_LOST", "ECONNRESET", "ETIMEDOUT"])(
+    "exhausts bounded retries for transient %s failures",
+    async (code) => {
+      const error = connectionError(code);
+      const failedPools = Array.from({ length: 3 }, () =>
+        createRejectedPreflightPool(error),
+      );
+      for (const pool of failedPools) {
+        moduleMocks.createPool.mockReturnValueOnce(pool);
+      }
 
-    const assertion = expect(runMigrations()).rejects.toBe(error);
-    await vi.runAllTimersAsync();
-    await assertion;
+      const assertion = expect(runMigrations()).rejects.toBe(error);
+      await vi.runAllTimersAsync();
+      await assertion;
 
-    expect(moduleMocks.createPool).toHaveBeenCalledTimes(3);
-    for (const pool of failedPools) {
-      expect(pool.end).toHaveBeenCalledTimes(1);
-    }
-    expect(moduleMocks.migrate).not.toHaveBeenCalled();
-  });
+      expect(moduleMocks.createPool).toHaveBeenCalledTimes(3);
+      for (const pool of failedPools) {
+        expect(pool.end).toHaveBeenCalledTimes(1);
+      }
+      expect(moduleMocks.migrate).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["authentication", connectionError("ER_ACCESS_DENIED_ERROR")],

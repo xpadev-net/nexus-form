@@ -738,33 +738,32 @@ describe("FormEditorPage tab synchronization", () => {
     act(() => root.unmount());
   });
 
-  it.each([
-    "settings",
-    "validation",
-    "sharing",
-  ])("redirects viewer share links away from %s tab URLs", (blockedTab) => {
-    searchShareToken = "shared-viewer-token";
-    searchTab = blockedTab;
-    permissionQueryState = {
-      data: { role: "VIEWER" },
-      isError: false,
-      isLoading: false,
-    };
-    const container = document.createElement("div");
-    const root = renderPage(container);
+  it.each(["settings", "validation", "sharing"])(
+    "redirects viewer share links away from %s tab URLs",
+    (blockedTab) => {
+      searchShareToken = "shared-viewer-token";
+      searchTab = blockedTab;
+      permissionQueryState = {
+        data: { role: "VIEWER" },
+        isError: false,
+        isLoading: false,
+      };
+      const container = document.createElement("div");
+      const root = renderPage(container);
 
-    expect(navigateMock).toHaveBeenCalledWith({
-      params: { id: "form-1" },
-      replace: true,
-      search: { shareToken: "shared-viewer-token", tab: "editor" },
-      to: "/forms/$id/edit",
-    });
-    expect(
-      container.querySelector("[data-testid='appearance-settings']"),
-    ).toBeNull();
+      expect(navigateMock).toHaveBeenCalledWith({
+        params: { id: "form-1" },
+        replace: true,
+        search: { shareToken: "shared-viewer-token", tab: "editor" },
+        to: "/forms/$id/edit",
+      });
+      expect(
+        container.querySelector("[data-testid='appearance-settings']"),
+      ).toBeNull();
 
-    act(() => root.unmount());
-  });
+      act(() => root.unmount());
+    },
+  );
 
   it("uses the current public URL in the editor header open action", () => {
     const container = document.createElement("div");

@@ -161,33 +161,36 @@ describe("ValidationResultList", () => {
     ],
     ["403 forbidden", "You do not have access to this validation result"],
     ["network error", "Failed to fetch"],
-  ])("shows the cancel failure reason for %s and refetches validation results", async (_caseName, message) => {
-    mocks.cancelValidationMutate.mockImplementation(
-      (_validationResultId: string, options?: MutationOptions) => {
-        options?.onError?.(new Error(message));
-      },
-    );
-    const container = document.createElement("div");
-    const root = renderList(container);
-
-    await act(async () => {
-      findCancelButton(container).dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
+  ])(
+    "shows the cancel failure reason for %s and refetches validation results",
+    async (_caseName, message) => {
+      mocks.cancelValidationMutate.mockImplementation(
+        (_validationResultId: string, options?: MutationOptions) => {
+          options?.onError?.(new Error(message));
+        },
       );
-    });
+      const container = document.createElement("div");
+      const root = renderList(container);
 
-    expect(mocks.cancelValidationMutate).toHaveBeenCalledWith(
-      "validation-result-1",
-      expect.objectContaining({
-        onError: expect.any(Function),
-        onSuccess: expect.any(Function),
-      }),
-    );
-    expect(mocks.toastError).toHaveBeenCalledWith(message);
-    expect(mocks.validationResultsRefetch).toHaveBeenCalledOnce();
+      await act(async () => {
+        findCancelButton(container).dispatchEvent(
+          new MouseEvent("click", { bubbles: true }),
+        );
+      });
 
-    act(() => root.unmount());
-  });
+      expect(mocks.cancelValidationMutate).toHaveBeenCalledWith(
+        "validation-result-1",
+        expect.objectContaining({
+          onError: expect.any(Function),
+          onSuccess: expect.any(Function),
+        }),
+      );
+      expect(mocks.toastError).toHaveBeenCalledWith(message);
+      expect(mocks.validationResultsRefetch).toHaveBeenCalledOnce();
+
+      act(() => root.unmount());
+    },
+  );
 
   it("shows the fallback cancel error message for non-Error failures", async () => {
     mocks.cancelValidationMutate.mockImplementation(

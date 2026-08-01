@@ -42,7 +42,7 @@ describe("ensureNodeIds", () => {
     ];
     ensureNodeIds(nodes);
     expect(typeof nodes[0]?.nodeId).toBe("string");
-    expect((nodes[0]?.nodeId as string).length).toBeGreaterThan(0);
+    expect(nodes[0]?.nodeId?.length).toBeGreaterThan(0);
     expect(nodes[1]?.nodeId).toBe("b1");
   });
 

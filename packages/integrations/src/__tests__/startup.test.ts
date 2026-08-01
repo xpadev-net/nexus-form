@@ -889,28 +889,28 @@ export default {
       }),
       error: "invalid worker manifest(s)",
     },
-  ])("cleans up current manifest after $label", async ({
-    peerManifest,
-    error,
-  }) => {
-    const registry = new ValidationProviderRegistry();
-    registry.register(makeProvider("discord"));
-    const store = new MemoryDriftStore();
-    store.values.set("test:plugins:worker:worker-1", peerManifest);
+  ])(
+    "cleans up current manifest after $label",
+    async ({ peerManifest, error }) => {
+      const registry = new ValidationProviderRegistry();
+      registry.register(makeProvider("discord"));
+      const store = new MemoryDriftStore();
+      store.values.set("test:plugins:worker:worker-1", peerManifest);
 
-    await expect(
-      startupPlugins(registry, {
-        logPrefix: "api",
-        pluginDriftGuard: {
-          role: "api",
-          instanceId: "api-1",
-          store,
-          keyPrefix: "test:plugins",
-        },
-      }),
-    ).rejects.toThrow(error);
-    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
-  });
+      await expect(
+        startupPlugins(registry, {
+          logPrefix: "api",
+          pluginDriftGuard: {
+            role: "api",
+            instanceId: "api-1",
+            store,
+            keyPrefix: "test:plugins",
+          },
+        }),
+      ).rejects.toThrow(error);
+      expect(store.values.has("test:plugins:api:api-1")).toBe(false);
+    },
+  );
 
   it.each([
     {
@@ -937,30 +937,30 @@ export default {
       peerManifest: JSON.stringify(makeManifest("worker", ["github"])),
       warning: "Plugin drift detected",
     },
-  ])("warns and continues with failOnMismatch=false for $label", async ({
-    peerManifest,
-    warning,
-  }) => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const registry = new ValidationProviderRegistry();
-    registry.register(makeProvider("discord"));
-    const store = new MemoryDriftStore();
-    store.values.set("test:plugins:worker:worker-1", peerManifest);
+  ])(
+    "warns and continues with failOnMismatch=false for $label",
+    async ({ peerManifest, warning }) => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const registry = new ValidationProviderRegistry();
+      registry.register(makeProvider("discord"));
+      const store = new MemoryDriftStore();
+      store.values.set("test:plugins:worker:worker-1", peerManifest);
 
-    await startupPlugins(registry, {
-      logPrefix: "api",
-      pluginDriftGuard: {
-        role: "api",
-        instanceId: "api-1",
-        store,
-        keyPrefix: "test:plugins",
-        failOnMismatch: false,
-      },
-    });
+      await startupPlugins(registry, {
+        logPrefix: "api",
+        pluginDriftGuard: {
+          role: "api",
+          instanceId: "api-1",
+          store,
+          keyPrefix: "test:plugins",
+          failOnMismatch: false,
+        },
+      });
 
-    expect(store.values.has("test:plugins:api:api-1")).toBe(true);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(warning));
-  });
+      expect(store.values.has("test:plugins:api:api-1")).toBe(true);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(warning));
+    },
+  );
 
   it("warns and continues when peer manifest read fails with failOnMismatch=false", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});

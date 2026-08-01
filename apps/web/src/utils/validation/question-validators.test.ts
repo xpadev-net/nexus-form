@@ -673,7 +673,10 @@ describe("question validators", () => {
       { value: "17:01" },
       ["TIME_TOO_LATE"],
     ],
-  ])("validates extracted %s answers before page navigation or submit", (_name, question, answer, expectedCodes) => {
-    expect(errorCodesFor(question, answer)).toEqual(expectedCodes);
-  });
+  ])(
+    "validates extracted %s answers before page navigation or submit",
+    (_name, question, answer, expectedCodes) => {
+      expect(errorCodesFor(question, answer)).toEqual(expectedCodes);
+    },
+  );
 });

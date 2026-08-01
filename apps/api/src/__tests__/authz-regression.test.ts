@@ -2257,39 +2257,38 @@ describe("R28-H1: public password verification hides unpublished forms", () => {
       password: "correct-password",
       passwordValid: true,
     },
-  ] as const)("returns 404 for $status password verification before checking $password", async ({
-    status,
-    password,
-    passwordValid,
-  }) => {
-    const { db } = await import("@nexus-form/database");
-    const { getLatestSnapshot } = await import(
-      "../lib/forms/snapshot-repository"
-    );
-    const { verifyPassword } = await import("../lib/security/password");
-    const { signSessionJwt } = await import("../lib/sessions/jwt");
-    vi.mocked(verifyPassword).mockResolvedValueOnce(passwordValid);
-    mockDbSelectChain(db, [[publishedPublicFormLookup({ status })]]);
+  ] as const)(
+    "returns 404 for $status password verification before checking $password",
+    async ({ status, password, passwordValid }) => {
+      const { db } = await import("@nexus-form/database");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      const { verifyPassword } = await import("../lib/security/password");
+      const { signSessionJwt } = await import("../lib/sessions/jwt");
+      vi.mocked(verifyPassword).mockResolvedValueOnce(passwordValid);
+      mockDbSelectChain(db, [[publishedPublicFormLookup({ status })]]);
 
-    const { formsPublicRouter } = await import("../routes/forms-public");
+      const { formsPublicRouter } = await import("../routes/forms-public");
 
-    const res = await formsPublicRouter.request(
-      "/public/test-public-id/verify-password",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      },
-    );
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/verify-password",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        },
+      );
 
-    expect(res.status).toBe(404);
-    await expect(res.json()).resolves.toEqual({
-      error: "Form not found",
-    });
-    expect(getLatestSnapshot).not.toHaveBeenCalled();
-    expect(verifyPassword).not.toHaveBeenCalled();
-    expect(signSessionJwt).not.toHaveBeenCalled();
-  });
+      expect(res.status).toBe(404);
+      await expect(res.json()).resolves.toEqual({
+        error: "Form not found",
+      });
+      expect(getLatestSnapshot).not.toHaveBeenCalled();
+      expect(verifyPassword).not.toHaveBeenCalled();
+      expect(signSessionJwt).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns 404 when a due schedule unpublishes before password verification", async () => {
     const now = new Date("2026-06-24T00:00:00.000Z");

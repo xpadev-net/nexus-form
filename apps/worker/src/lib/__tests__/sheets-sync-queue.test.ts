@@ -118,41 +118,41 @@ describe("sheets-sync-queue", () => {
     expect(jobIds[0]).not.toBe(jobIds[1]);
   });
 
-  it.each([
-    "failed",
-    "completed",
-  ] as const)("replaces an existing terminal refresh job in %s state", async (state) => {
-    const remove = vi.fn(async () => undefined);
-    mocks.queue.getJob.mockResolvedValueOnce({
-      getState: vi.fn(async () => state),
-      remove,
-    });
-    const { enqueueValidationRefreshSheetsSyncJob } = await import(
-      "../sheets-sync-queue"
-    );
+  it.each(["failed", "completed"] as const)(
+    "replaces an existing terminal refresh job in %s state",
+    async (state) => {
+      const remove = vi.fn(async () => undefined);
+      mocks.queue.getJob.mockResolvedValueOnce({
+        getState: vi.fn(async () => state),
+        remove,
+      });
+      const { enqueueValidationRefreshSheetsSyncJob } = await import(
+        "../sheets-sync-queue"
+      );
 
-    await enqueueValidationRefreshSheetsSyncJob({
-      formId: "form-1",
-      integrationId: "integration-1",
-      responseId: "response-1",
-      snapshotVersion: 7,
-    });
-
-    expect(remove).toHaveBeenCalledOnce();
-    expect(mocks.queue.add).toHaveBeenCalledWith(
-      "validation-refresh",
-      expect.objectContaining({
+      await enqueueValidationRefreshSheetsSyncJob({
         formId: "form-1",
         integrationId: "integration-1",
         responseId: "response-1",
         snapshotVersion: 7,
-        refreshValidationOutputs: true,
-      }),
-      expect.objectContaining({
-        jobId: expect.stringMatching(/^sheets-refresh\./),
-      }),
-    );
-  });
+      });
+
+      expect(remove).toHaveBeenCalledOnce();
+      expect(mocks.queue.add).toHaveBeenCalledWith(
+        "validation-refresh",
+        expect.objectContaining({
+          formId: "form-1",
+          integrationId: "integration-1",
+          responseId: "response-1",
+          snapshotVersion: 7,
+          refreshValidationOutputs: true,
+        }),
+        expect.objectContaining({
+          jobId: expect.stringMatching(/^sheets-refresh\./),
+        }),
+      );
+    },
+  );
 
   it("persists a durable outbox row when direct enqueue fails", async () => {
     mocks.queue.add.mockRejectedValue(new Error("Redis unavailable"));

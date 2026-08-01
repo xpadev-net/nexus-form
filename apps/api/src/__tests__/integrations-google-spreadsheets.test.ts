@@ -1010,27 +1010,27 @@ describe("Google Sheets spreadsheet mutation routes", () => {
     });
   });
 
-  it.each([
-    { replies: "bad" },
-    { replies: [] },
-  ])("returns 502 when Google returns a malformed add-sheet response %#", async (googleResponse) => {
-    fetchMock.mockResolvedValueOnce(createJsonResponse(googleResponse));
-    const app = createApp();
+  it.each([{ replies: "bad" }, { replies: [] }])(
+    "returns 502 when Google returns a malformed add-sheet response %#",
+    async (googleResponse) => {
+      fetchMock.mockResolvedValueOnce(createJsonResponse(googleResponse));
+      const app = createApp();
 
-    const response = await app.request(
-      "/api/integrations/google/spreadsheets/spreadsheet-1/sheets",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "Responses" }),
-      },
-    );
+      const response = await app.request(
+        "/api/integrations/google/spreadsheets/spreadsheet-1/sheets",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ title: "Responses" }),
+        },
+      );
 
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({
-      error: "Unexpected response from Google API",
-    });
-  });
+      expect(response.status).toBe(502);
+      await expect(response.json()).resolves.toEqual({
+        error: "Unexpected response from Google API",
+      });
+    },
+  );
 
   it("returns 502 when adding a sheet cannot reach Google", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network down"));

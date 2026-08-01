@@ -263,45 +263,43 @@ describe("submit outbox sweeper", () => {
     );
   });
 
-  it.each([
-    "active",
-    "completed",
-  ] as const)("reuses a validation refresh job when an existing Sheets job is %s", async (state:
-    | "active"
-    | "completed"): Promise<void> => {
-    const remove = vi.fn(async () => undefined);
-    mocks.sheetsExistingJob = {
-      getState: vi.fn(async () => state),
-      remove,
-    };
-    const refresh = sheetsRefreshRow();
-    useClaimBatches([[refresh]]);
-    const { sweepSubmitOutbox } = await import("../submit-outbox-sweeper");
+  it.each(["active", "completed"] as const)(
+    "reuses a validation refresh job when an existing Sheets job is %s",
+    async (state: "active" | "completed"): Promise<void> => {
+      const remove = vi.fn(async () => undefined);
+      mocks.sheetsExistingJob = {
+        getState: vi.fn(async () => state),
+        remove,
+      };
+      const refresh = sheetsRefreshRow();
+      useClaimBatches([[refresh]]);
+      const { sweepSubmitOutbox } = await import("../submit-outbox-sweeper");
 
-    await expect(sweepSubmitOutbox()).resolves.toEqual({
-      scanned: 1,
-      enqueued: 1,
-      failed: 0,
-    });
-    expect(mocks.addSheetsJob).toHaveBeenCalledWith(
-      "validation-refresh",
-      expect.objectContaining({
-        formId: "form-1",
-        integrationId: "integration-1",
-        mode: "incremental",
-        responseId: "response-1",
-        snapshotVersion: 7,
-        refreshValidationOutputs: true,
-      }),
-      { jobId: refresh.id },
-    );
-    expect(mocks.sheetsExistingJob?.getState).toHaveBeenCalledWith();
-    if (state === "completed") {
-      expect(remove).toHaveBeenCalledOnce();
-    } else {
-      expect(remove).not.toHaveBeenCalled();
-    }
-  });
+      await expect(sweepSubmitOutbox()).resolves.toEqual({
+        scanned: 1,
+        enqueued: 1,
+        failed: 0,
+      });
+      expect(mocks.addSheetsJob).toHaveBeenCalledWith(
+        "validation-refresh",
+        expect.objectContaining({
+          formId: "form-1",
+          integrationId: "integration-1",
+          mode: "incremental",
+          responseId: "response-1",
+          snapshotVersion: 7,
+          refreshValidationOutputs: true,
+        }),
+        { jobId: refresh.id },
+      );
+      expect(mocks.sheetsExistingJob?.getState).toHaveBeenCalledWith();
+      if (state === "completed") {
+        expect(remove).toHaveBeenCalledOnce();
+      } else {
+        expect(remove).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("releases a failed Redis claim and recovers it on a later sweep", async () => {
     const row = notificationRow();

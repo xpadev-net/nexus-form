@@ -47,22 +47,22 @@ describe("response validator pattern mismatch modes", () => {
     );
   });
 
-  it.each([
-    "warn",
-    "hidden",
-  ] as const)("allows short text mismatches in %s mode", (patternMismatchMode) => {
-    const form = makeForm("q1", "short_text", {
-      pattern: "^NF-\\d{4}$",
-      patternMismatchMode,
-    });
+  it.each(["warn", "hidden"] as const)(
+    "allows short text mismatches in %s mode",
+    (patternMismatchMode) => {
+      const form = makeForm("q1", "short_text", {
+        pattern: "^NF-\\d{4}$",
+        patternMismatchMode,
+      });
 
-    const result = validateResponseData(
-      [makeResponse("q1", "short_text", { value: "draft" })],
-      form,
-    );
+      const result = validateResponseData(
+        [makeResponse("q1", "short_text", { value: "draft" })],
+        form,
+      );
 
-    expect(result).toEqual({ isValid: true, errors: [] });
-  });
+      expect(result).toEqual({ isValid: true, errors: [] });
+    },
+  );
 
   it("does not execute unsafe short text patterns during submit validation", () => {
     const form = makeForm("q1", "short_text", {
@@ -80,33 +80,33 @@ describe("response validator pattern mismatch modes", () => {
 });
 
 describe("response validator other text validation", () => {
-  it.each([
-    "radio",
-    "dropdown",
-  ] as const)("applies block-mode other text rules to %s", (type) => {
-    const form = makeForm("q1", type, {
-      allowOther: true,
-      options: [{ id: "a", label: "A" }],
-      otherTextValidation: {
-        minLength: 3,
-        pattern: "^NF-\\d{4}$",
-        patternMismatchMode: "block",
-      },
-    });
+  it.each(["radio", "dropdown"] as const)(
+    "applies block-mode other text rules to %s",
+    (type) => {
+      const form = makeForm("q1", type, {
+        allowOther: true,
+        options: [{ id: "a", label: "A" }],
+        otherTextValidation: {
+          minLength: 3,
+          pattern: "^NF-\\d{4}$",
+          patternMismatchMode: "block",
+        },
+      });
 
-    const result = validateResponseData(
-      [makeResponse("q1", type, { value: "other", other_value: "x" })],
-      form,
-    );
+      const result = validateResponseData(
+        [makeResponse("q1", type, { value: "other", other_value: "x" })],
+        form,
+      );
 
-    expect(result.isValid).toBe(false);
-    expect(result.errors).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("at least 3"),
-        expect.stringContaining("does not match the required pattern"),
-      ]),
-    );
-  });
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("at least 3"),
+          expect.stringContaining("does not match the required pattern"),
+        ]),
+      );
+    },
+  );
 
   it("applies block-mode other text rules to checkbox values", () => {
     const form = makeForm("q1", "checkbox", {
@@ -138,31 +138,31 @@ describe("response validator other text validation", () => {
     );
   });
 
-  it.each([
-    "warn",
-    "hidden",
-  ] as const)("allows other text pattern mismatches in %s mode", (patternMismatchMode) => {
-    const form = makeForm("q1", "radio", {
-      allowOther: true,
-      options: [{ id: "a", label: "A" }],
-      otherTextValidation: {
-        pattern: "^NF-\\d{4}$",
-        patternMismatchMode,
-      },
-    });
+  it.each(["warn", "hidden"] as const)(
+    "allows other text pattern mismatches in %s mode",
+    (patternMismatchMode) => {
+      const form = makeForm("q1", "radio", {
+        allowOther: true,
+        options: [{ id: "a", label: "A" }],
+        otherTextValidation: {
+          pattern: "^NF-\\d{4}$",
+          patternMismatchMode,
+        },
+      });
 
-    const result = validateResponseData(
-      [
-        makeResponse("q1", "radio", {
-          value: "other",
-          other_value: "draft",
-        }),
-      ],
-      form,
-    );
+      const result = validateResponseData(
+        [
+          makeResponse("q1", "radio", {
+            value: "other",
+            other_value: "draft",
+          }),
+        ],
+        form,
+      );
 
-    expect(result).toEqual({ isValid: true, errors: [] });
-  });
+      expect(result).toEqual({ isValid: true, errors: [] });
+    },
+  );
 });
 
 describe("public submit reachability validation helpers", () => {

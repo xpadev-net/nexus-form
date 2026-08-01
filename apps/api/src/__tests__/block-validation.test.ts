@@ -55,18 +55,17 @@ function makeRadioBlock(otherPatternMismatchMode: unknown): Block {
 }
 
 describe("pattern mismatch mode validation", () => {
-  it.each([
-    "block",
-    "warn",
-    "hidden",
-  ] as const)("accepts %s mode on short text and other text validation", (patternMismatchMode) => {
-    expect(
-      hasInvalidPatternMismatchMode(makeShortTextBlock(patternMismatchMode)),
-    ).toBe(false);
-    expect(
-      hasInvalidPatternMismatchMode(makeRadioBlock(patternMismatchMode)),
-    ).toBe(false);
-  });
+  it.each(["block", "warn", "hidden"] as const)(
+    "accepts %s mode on short text and other text validation",
+    (patternMismatchMode) => {
+      expect(
+        hasInvalidPatternMismatchMode(makeShortTextBlock(patternMismatchMode)),
+      ).toBe(false);
+      expect(
+        hasInvalidPatternMismatchMode(makeRadioBlock(patternMismatchMode)),
+      ).toBe(false);
+    },
+  );
 
   it("rejects invalid short text pattern mismatch mode", () => {
     const result = validateBlocks([makeShortTextBlock("permit")]);

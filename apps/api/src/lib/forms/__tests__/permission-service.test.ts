@@ -141,7 +141,10 @@ describe("validateShareLinkRole", () => {
     ["EDITOR", "VIEWER", true],
     ["VIEWER", "VIEWER", true],
     ["VIEWER", "EDITOR", false],
-  ] as const)("allows %s users to create %s share links: %s", (userRole, requestedRole, expected) => {
-    expect(validateShareLinkRole(requestedRole, userRole)).toBe(expected);
-  });
+  ] as const)(
+    "allows %s users to create %s share links: %s",
+    (userRole, requestedRole, expected) => {
+      expect(validateShareLinkRole(requestedRole, userRole)).toBe(expected);
+    },
+  );
 });

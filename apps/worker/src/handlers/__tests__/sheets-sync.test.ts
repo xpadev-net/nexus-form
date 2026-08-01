@@ -389,18 +389,17 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockDb.select).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "null",
-    "42",
-    "[]",
-  ])("configJson が object でない場合は弾く (%s)", async (configJson) => {
-    setupDbSelect([{ ...INTEGRATION, configJson }]);
+  it.each(["null", "42", "[]"])(
+    "configJson が object でない場合は弾く (%s)",
+    async (configJson) => {
+      setupDbSelect([{ ...INTEGRATION, configJson }]);
 
-    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
-      "Form integration configJson must be an object",
-    );
-    expect(mockGetOAuthToken).not.toHaveBeenCalled();
-  });
+      await expect(handleSheetsSync(makeJob())).rejects.toThrow(
+        "Form integration configJson must be an object",
+      );
+      expect(mockGetOAuthToken).not.toHaveBeenCalled();
+    },
+  );
 
   it("googleSheets config が object でない場合は弾く", async () => {
     setupDbSelect([

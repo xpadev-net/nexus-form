@@ -11,20 +11,20 @@ const schema = createFormAppearanceSchema({
 });
 
 describe("FormAppearance image URLs", () => {
-  it.each([
-    "https://cdn.example.com/logo.png",
-    "http://localhost/logo.png",
-  ])("accepts http(s) image URL %s", (url) => {
-    expect(FormAppearanceImageUrlSchema.safeParse(url).success).toBe(true);
-    expect(
-      schema.safeParse({
-        theme: {
-          logo_url: url,
-          cover_image_url: url,
-        },
-      }).success,
-    ).toBe(true);
-  });
+  it.each(["https://cdn.example.com/logo.png", "http://localhost/logo.png"])(
+    "accepts http(s) image URL %s",
+    (url) => {
+      expect(FormAppearanceImageUrlSchema.safeParse(url).success).toBe(true);
+      expect(
+        schema.safeParse({
+          theme: {
+            logo_url: url,
+            cover_image_url: url,
+          },
+        }).success,
+      ).toBe(true);
+    },
+  );
 
   it.each([
     "data:image/svg+xml,<svg></svg>",

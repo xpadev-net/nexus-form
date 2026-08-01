@@ -478,55 +478,55 @@ describe("R23-T3 share and permission routes", () => {
     });
   });
 
-  it.each([
-    "VIEWER",
-    "EDITOR",
-  ] as const)("returns a shared-link view for %s without exposing the raw token", async (role) => {
-    mocks.validateShareLink.mockResolvedValueOnce({
-      form: {
-        id: "form-1",
-        title: "Shared Form",
-        description: "Shared description",
-      },
-      role,
-      share_link: {
-        id: "link-1",
-        form_id: "form-1",
-        token: "secret-token",
+  it.each(["VIEWER", "EDITOR"] as const)(
+    "returns a shared-link view for %s without exposing the raw token",
+    async (role) => {
+      mocks.validateShareLink.mockResolvedValueOnce({
+        form: {
+          id: "form-1",
+          title: "Shared Form",
+          description: "Shared description",
+        },
         role,
-        is_active: true,
-        expires_at: undefined,
-        created_at: "2026-06-01T00:00:00.000Z",
-        updated_at: "2026-06-01T00:00:00.000Z",
-        created_by: "editor-1",
-      },
-    });
-    const app = createApp();
+        share_link: {
+          id: "link-1",
+          form_id: "form-1",
+          token: "secret-token",
+          role,
+          is_active: true,
+          expires_at: undefined,
+          created_at: "2026-06-01T00:00:00.000Z",
+          updated_at: "2026-06-01T00:00:00.000Z",
+          created_by: "editor-1",
+        },
+      });
+      const app = createApp();
 
-    const response = await app.request("/api/forms/shared/secret-token");
-    const body = await response.json();
+      const response = await app.request("/api/forms/shared/secret-token");
+      const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body).toEqual({
-      form: {
-        id: "form-1",
-        title: "Shared Form",
-        description: "Shared description",
-      },
-      role,
-      share_link: {
-        id: "link-1",
-        form_id: "form-1",
+      expect(response.status).toBe(200);
+      expect(body).toEqual({
+        form: {
+          id: "form-1",
+          title: "Shared Form",
+          description: "Shared description",
+        },
         role,
-        is_active: true,
-        created_at: "2026-06-01T00:00:00.000Z",
-        updated_at: "2026-06-01T00:00:00.000Z",
-        created_by: "editor-1",
-      },
-    });
-    expect(JSON.stringify(body)).not.toContain("secret-token");
-    expect(mocks.validateShareLink).toHaveBeenCalledWith("secret-token");
-  });
+        share_link: {
+          id: "link-1",
+          form_id: "form-1",
+          role,
+          is_active: true,
+          created_at: "2026-06-01T00:00:00.000Z",
+          updated_at: "2026-06-01T00:00:00.000Z",
+          created_by: "editor-1",
+        },
+      });
+      expect(JSON.stringify(body)).not.toContain("secret-token");
+      expect(mocks.validateShareLink).toHaveBeenCalledWith("secret-token");
+    },
+  );
 
   it("creates an email invitation through the mocked invitation service", async () => {
     const app = createApp();

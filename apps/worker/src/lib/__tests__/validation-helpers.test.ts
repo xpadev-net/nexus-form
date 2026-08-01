@@ -734,24 +734,27 @@ describe("markValidationProcessing", () => {
     ["LEGACY", "PENDING", "revalidation", revalidationJobId],
     ["LEGACY", "PROCESSING", "retry", retryJobId],
     ["LEGACY", "PROCESSING", "revalidation", revalidationJobId],
-  ] as const)("admits a %s %s row owned by the same strict %s job", async (enqueueMode, status, _jobType, jobId) => {
-    mockValidationRow(makeValidationRow({ enqueueMode, jobId, status }));
+  ] as const)(
+    "admits a %s %s row owned by the same strict %s job",
+    async (enqueueMode, status, _jobType, jobId) => {
+      mockValidationRow(makeValidationRow({ enqueueMode, jobId, status }));
 
-    await markValidationProcessing({
-      ...validationParams,
-      jobId,
-    });
+      await markValidationProcessing({
+        ...validationParams,
+        jobId,
+      });
 
-    const updateCondition = flattenSqlChunks(updateWhere.mock.calls[0]?.[0]);
-    expect(updateCondition).toEqual(
-      expect.arrayContaining(["jobId", " = ", jobId]),
-    );
-    expect(updateCondition).not.toContain("enqueueMode");
-    expect(selectForUpdate).not.toHaveBeenCalled();
-    expect(publishValidationEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "PROCESSING" }),
-    );
-  });
+      const updateCondition = flattenSqlChunks(updateWhere.mock.calls[0]?.[0]);
+      expect(updateCondition).toEqual(
+        expect.arrayContaining(["jobId", " = ", jobId]),
+      );
+      expect(updateCondition).not.toContain("enqueueMode");
+      expect(selectForUpdate).not.toHaveBeenCalled();
+      expect(publishValidationEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "PROCESSING" }),
+      );
+    },
+  );
 
   it.each([
     ["STABLE", "retry", retryJobId, null],
@@ -762,22 +765,25 @@ describe("markValidationProcessing", () => {
     ["LEGACY", "retry", retryJobId, "different-job"],
     ["LEGACY", "revalidation", revalidationJobId, null],
     ["LEGACY", "revalidation", revalidationJobId, "different-job"],
-  ] as const)("rejects a %s row not owned by the strict %s job", async (enqueueMode, _jobType, jobId, persistedJobId) => {
-    mockValidationRow(
-      makeValidationRow({ enqueueMode, jobId: persistedJobId }),
-    );
+  ] as const)(
+    "rejects a %s row not owned by the strict %s job",
+    async (enqueueMode, _jobType, jobId, persistedJobId) => {
+      mockValidationRow(
+        makeValidationRow({ enqueueMode, jobId: persistedJobId }),
+      );
 
-    await expect(
-      markValidationProcessing({
-        ...validationParams,
-        jobId,
-      }),
-    ).rejects.toMatchObject({
-      expectedJobId: jobId,
-      actualJobId: persistedJobId,
-    });
-    expect(publishValidationEvent).not.toHaveBeenCalled();
-  });
+      await expect(
+        markValidationProcessing({
+          ...validationParams,
+          jobId,
+        }),
+      ).rejects.toMatchObject({
+        expectedJobId: jobId,
+        actualJobId: persistedJobId,
+      });
+      expect(publishValidationEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["STABLE", "COMPLETED", "retry", retryJobId, null],
@@ -788,21 +794,24 @@ describe("markValidationProcessing", () => {
     ["LEGACY", "FAILED", "retry", retryJobId, "VALIDATION_ERROR"],
     ["LEGACY", "COMPLETED", "revalidation", revalidationJobId, null],
     ["LEGACY", "FAILED", "revalidation", revalidationJobId, "VALIDATION_ERROR"],
-  ] as const)("preserves %s %s behavior for a row owned by a strict %s job", async (enqueueMode, status, _jobType, jobId, errorCode) => {
-    mockValidationRow(
-      makeValidationRow({ enqueueMode, status, errorCode, jobId }),
-    );
+  ] as const)(
+    "preserves %s %s behavior for a row owned by a strict %s job",
+    async (enqueueMode, status, _jobType, jobId, errorCode) => {
+      mockValidationRow(
+        makeValidationRow({ enqueueMode, status, errorCode, jobId }),
+      );
 
-    await markValidationProcessing({
-      ...validationParams,
-      jobId,
-    });
+      await markValidationProcessing({
+        ...validationParams,
+        jobId,
+      });
 
-    expect(selectForUpdate).not.toHaveBeenCalled();
-    expect(publishValidationEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "PROCESSING" }),
-    );
-  });
+      expect(selectForUpdate).not.toHaveBeenCalled();
+      expect(publishValidationEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "PROCESSING" }),
+      );
+    },
+  );
 
   it.each([
     ["STABLE", "retry", retryJobId, retryJobId],
@@ -813,24 +822,27 @@ describe("markValidationProcessing", () => {
     ["LEGACY", "retry", retryJobId, "different-job"],
     ["LEGACY", "revalidation", revalidationJobId, revalidationJobId],
     ["LEGACY", "revalidation", revalidationJobId, null],
-  ] as const)("preserves cancellation on a %s row before strict %s ownership diagnosis", async (enqueueMode, _jobType, jobId, persistedJobId) => {
-    mockValidationRow(
-      makeValidationRow({
-        status: "FAILED",
-        errorCode: "CANCELLED_BY_USER",
-        enqueueMode,
-        jobId: persistedJobId,
-      }),
-    );
+  ] as const)(
+    "preserves cancellation on a %s row before strict %s ownership diagnosis",
+    async (enqueueMode, _jobType, jobId, persistedJobId) => {
+      mockValidationRow(
+        makeValidationRow({
+          status: "FAILED",
+          errorCode: "CANCELLED_BY_USER",
+          enqueueMode,
+          jobId: persistedJobId,
+        }),
+      );
 
-    await expect(
-      markValidationProcessing({
-        ...validationParams,
-        jobId,
-      }),
-    ).rejects.toBeInstanceOf(ValidationCancelledError);
-    expect(publishValidationEvent).not.toHaveBeenCalled();
-  });
+      await expect(
+        markValidationProcessing({
+          ...validationParams,
+          jobId,
+        }),
+      ).rejects.toBeInstanceOf(ValidationCancelledError);
+      expect(publishValidationEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["PENDING with a null job id", "PENDING", null],
@@ -855,29 +867,29 @@ describe("markValidationProcessing", () => {
     );
   });
 
-  it.each([
-    "COMPLETED",
-    "FAILED",
-  ] as const)("rejects a STABLE outbox row in terminal state %s", async (status) => {
-    mockValidationRow(
-      makeValidationRow({
-        status,
-        errorCode: status === "FAILED" ? "VALIDATION_ERROR" : null,
-        jobId: stableOutboxJobId,
-      }),
-    );
+  it.each(["COMPLETED", "FAILED"] as const)(
+    "rejects a STABLE outbox row in terminal state %s",
+    async (status) => {
+      mockValidationRow(
+        makeValidationRow({
+          status,
+          errorCode: status === "FAILED" ? "VALIDATION_ERROR" : null,
+          jobId: stableOutboxJobId,
+        }),
+      );
 
-    await expect(
-      markValidationProcessing({
-        ...validationParams,
-        jobId: stableOutboxJobId,
-      }),
-    ).rejects.toMatchObject({
-      expectedJobId: stableOutboxJobId,
-      actualJobId: stableOutboxJobId,
-    });
-    expect(publishValidationEvent).not.toHaveBeenCalled();
-  });
+      await expect(
+        markValidationProcessing({
+          ...validationParams,
+          jobId: stableOutboxJobId,
+        }),
+      ).rejects.toMatchObject({
+        expectedJobId: stableOutboxJobId,
+        actualJobId: stableOutboxJobId,
+      });
+      expect(publishValidationEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects a missing STABLE outbox row", async () => {
     mockValidationRow(null);
@@ -894,28 +906,28 @@ describe("markValidationProcessing", () => {
     expect(publishValidationEvent).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "PENDING",
-    "PROCESSING",
-  ] as const)("rejects a STABLE %s row owned by a different job", async (status) => {
-    mockValidationRow(
-      makeValidationRow({
-        status,
-        jobId: "validation-outbox-newer-job",
-      }),
-    );
+  it.each(["PENDING", "PROCESSING"] as const)(
+    "rejects a STABLE %s row owned by a different job",
+    async (status) => {
+      mockValidationRow(
+        makeValidationRow({
+          status,
+          jobId: "validation-outbox-newer-job",
+        }),
+      );
 
-    await expect(
-      markValidationProcessing({
-        ...validationParams,
-        jobId: stableOutboxJobId,
-      }),
-    ).rejects.toMatchObject({
-      expectedJobId: stableOutboxJobId,
-      actualJobId: "validation-outbox-newer-job",
-    });
-    expect(publishValidationEvent).not.toHaveBeenCalled();
-  });
+      await expect(
+        markValidationProcessing({
+          ...validationParams,
+          jobId: stableOutboxJobId,
+        }),
+      ).rejects.toMatchObject({
+        expectedJobId: stableOutboxJobId,
+        actualJobId: "validation-outbox-newer-job",
+      });
+      expect(publishValidationEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects a STABLE PROCESSING row with a null job id", async () => {
     mockValidationRow(makeValidationRow({ status: "PROCESSING" }));
@@ -955,23 +967,26 @@ describe("markValidationProcessing", () => {
   it.each([
     ["a forged outbox-prefix job id", "validation-outbox-forged"],
     ["an ordinary job id", "ordinary-job"],
-  ])("rejects %s against a STABLE PENDING row with null job id", async (_case, jobId) => {
-    mockValidationRow(makeValidationRow());
+  ])(
+    "rejects %s against a STABLE PENDING row with null job id",
+    async (_case, jobId) => {
+      mockValidationRow(makeValidationRow());
 
-    await expect(
-      markValidationProcessing({
-        ...validationParams,
-        jobId,
-      }),
-    ).rejects.toMatchObject({
-      expectedJobId: jobId,
-      actualJobId: null,
-    });
-    expect(transactionSelect).toHaveBeenCalledWith(
-      expect.objectContaining({ enqueueMode: expect.anything() }),
-    );
-    expect(publishValidationEvent).not.toHaveBeenCalled();
-  });
+      await expect(
+        markValidationProcessing({
+          ...validationParams,
+          jobId,
+        }),
+      ).rejects.toMatchObject({
+        expectedJobId: jobId,
+        actualJobId: null,
+      });
+      expect(transactionSelect).toHaveBeenCalledWith(
+        expect.objectContaining({ enqueueMode: expect.anything() }),
+      );
+      expect(publishValidationEvent).not.toHaveBeenCalled();
+    },
+  );
 
   it("throws ConcurrentDeleteError when the processing row disappears before update", async () => {
     updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);

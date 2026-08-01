@@ -2701,53 +2701,56 @@ describe("FormBody", () => {
       expectedMessage: "通常向け完了メッセージ",
       unexpectedMessage: "VIP 向け完了メッセージ",
     },
-  ])("shows the $optionLabel completion section after submit success", async ({
-    optionLabel,
-    expectedTargetPageId,
-    expectedMessage,
-    unexpectedMessage,
-  }) => {
-    const onSubmitRequest = vi.fn();
-    const container = document.createElement("div");
-    const root = renderFormBody(
-      container,
-      completionTargetBranchingPlateContent(),
-      {
-        captchaReady: true,
-        onSubmitRequest,
-        showCompletionTargetAfterSubmit: true,
-      },
-    );
+  ])(
+    "shows the $optionLabel completion section after submit success",
+    async ({
+      optionLabel,
+      expectedTargetPageId,
+      expectedMessage,
+      unexpectedMessage,
+    }) => {
+      const onSubmitRequest = vi.fn();
+      const container = document.createElement("div");
+      const root = renderFormBody(
+        container,
+        completionTargetBranchingPlateContent(),
+        {
+          captchaReady: true,
+          onSubmitRequest,
+          showCompletionTargetAfterSubmit: true,
+        },
+      );
 
-    await act(async () => {
-      fireEvent.click(getByRole(container, "radio", { name: optionLabel }));
-    });
-    await act(async () => {
-      container
-        .querySelector("form")
-        ?.dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-    });
+      await act(async () => {
+        fireEvent.click(getByRole(container, "radio", { name: optionLabel }));
+      });
+      await act(async () => {
+        container
+          .querySelector("form")
+          ?.dispatchEvent(
+            new Event("submit", { bubbles: true, cancelable: true }),
+          );
+      });
 
-    expect(onSubmitRequest).toHaveBeenCalledOnce();
-    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
-      completionTargetPageId: expectedTargetPageId,
-      visitedQuestionIds: ["q-plan"],
-      responses: [
-        expect.objectContaining({
-          question_id: "q-plan",
-          question_title: "プラン",
-          question_type: "radio",
-        }),
-      ],
-    });
-    expect(container.textContent).toContain(expectedMessage);
-    expect(container.textContent).not.toContain(unexpectedMessage);
-    expect(container.textContent).not.toContain("回答を送信");
+      expect(onSubmitRequest).toHaveBeenCalledOnce();
+      expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+        completionTargetPageId: expectedTargetPageId,
+        visitedQuestionIds: ["q-plan"],
+        responses: [
+          expect.objectContaining({
+            question_id: "q-plan",
+            question_title: "プラン",
+            question_type: "radio",
+          }),
+        ],
+      });
+      expect(container.textContent).toContain(expectedMessage);
+      expect(container.textContent).not.toContain(unexpectedMessage);
+      expect(container.textContent).not.toContain("回答を送信");
 
-    act(() => root.unmount());
-  });
+      act(() => root.unmount());
+    },
+  );
 
   it("keeps submit without target_id on the legacy confirmation flow", async () => {
     const onSubmitRequest = vi.fn();

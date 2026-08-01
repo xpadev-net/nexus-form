@@ -218,33 +218,31 @@ describe("R9-C1 share-link management authorization", () => {
       path: "/form-1/share-links/managed-link",
       service: "deleteShareLink",
     },
-  ] as const)("rejects share-link API tokens before $method $path", async ({
-    body,
-    method,
-    path,
-    service,
-  }) => {
-    mocks.authContext = {
-      auth_type: "api_token",
-      user_id: "share-link:link-1",
-      token_id: "token-1",
-      scopes: ["read", "write"],
-      form_ids: ["form-1"],
-      share_link_id: "link-1",
-    };
+  ] as const)(
+    "rejects share-link API tokens before $method $path",
+    async ({ body, method, path, service }) => {
+      mocks.authContext = {
+        auth_type: "api_token",
+        user_id: "share-link:link-1",
+        token_id: "token-1",
+        scopes: ["read", "write"],
+        form_ids: ["form-1"],
+        share_link_id: "link-1",
+      };
 
-    const { formsPermissionsRouter } = await import(
-      "../routes/forms-permissions"
-    );
-    const response = await formsPermissionsRouter.request(path, {
-      body: body ? JSON.stringify(body) : undefined,
-      headers: body ? { "content-type": "application/json" } : undefined,
-      method,
-    });
+      const { formsPermissionsRouter } = await import(
+        "../routes/forms-permissions"
+      );
+      const response = await formsPermissionsRouter.request(path, {
+        body: body ? JSON.stringify(body) : undefined,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        method,
+      });
 
-    expect(response.status).toBe(403);
-    expect(mocks[service]).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(403);
+      expect(mocks[service]).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects anonymous synthetic API tokens before listing managed share links", async () => {
     mocks.authContext = {
@@ -423,26 +421,24 @@ describe("R28-H2 invitation management authorization", () => {
       path: "/form-1/invitations/invitation-1",
       service: "cancelInvitation",
     },
-  ] as const)("rejects EDITOR share-link API tokens before $method $path", async ({
-    body,
-    method,
-    path,
-    service,
-  }) => {
-    const { formsPermissionsRouter } = await import(
-      "../routes/forms-permissions"
-    );
-    const response = await formsPermissionsRouter.request(path, {
-      body: body ? JSON.stringify(body) : undefined,
-      headers: body ? { "content-type": "application/json" } : undefined,
-      method,
-    });
-    const responseBody = await response.text();
+  ] as const)(
+    "rejects EDITOR share-link API tokens before $method $path",
+    async ({ body, method, path, service }) => {
+      const { formsPermissionsRouter } = await import(
+        "../routes/forms-permissions"
+      );
+      const response = await formsPermissionsRouter.request(path, {
+        body: body ? JSON.stringify(body) : undefined,
+        headers: body ? { "content-type": "application/json" } : undefined,
+        method,
+      });
+      const responseBody = await response.text();
 
-    expect(response.status).toBe(403);
-    expect(responseBody).not.toContain("secret-invitation-token");
-    expect(mocks[service]).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(403);
+      expect(responseBody).not.toContain("secret-invitation-token");
+      expect(mocks[service]).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects anonymous synthetic API tokens before listing invitations", async () => {
     mocks.authContext = {
@@ -488,32 +484,32 @@ describe("R28-H3 invitation creation error responses", () => {
       message: "Invitation already exists for this email",
       status: 409,
     },
-  ] as const)("maps invitation creation domain failures to $status", async ({
-    message,
-    status,
-  }) => {
-    mocks.createInvitation.mockRejectedValue(
-      namedPermissionServiceError("InvitationCreateError", status, message),
-    );
-    const { formsPermissionsRouter } = await import(
-      "../routes/forms-permissions"
-    );
+  ] as const)(
+    "maps invitation creation domain failures to $status",
+    async ({ message, status }) => {
+      mocks.createInvitation.mockRejectedValue(
+        namedPermissionServiceError("InvitationCreateError", status, message),
+      );
+      const { formsPermissionsRouter } = await import(
+        "../routes/forms-permissions"
+      );
 
-    const response = await formsPermissionsRouter.request(
-      "/form-1/invitations",
-      {
-        body: JSON.stringify({
-          email: "target@example.com",
-          role: "VIEWER",
-        }),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      },
-    );
+      const response = await formsPermissionsRouter.request(
+        "/form-1/invitations",
+        {
+          body: JSON.stringify({
+            email: "target@example.com",
+            role: "VIEWER",
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      );
 
-    await expect(response.json()).resolves.toEqual({ error: message });
-    expect(response.status).toBe(status);
-  });
+      await expect(response.json()).resolves.toEqual({ error: message });
+      expect(response.status).toBe(status);
+    },
+  );
 });
 
 describe("R14-H6 permission creation user existence checks", () => {
@@ -847,29 +843,29 @@ describe("permission mutation stale conflict responses", () => {
       message: "Cannot change owner role. Use transfer ownership instead.",
       status: 409,
     },
-  ] as const)("maps permission role update domain failures to $status", async ({
-    message,
-    status,
-  }) => {
-    mocks.updatePermissionRole.mockRejectedValue(
-      namedPermissionServiceError("PermissionUpdateError", status, message),
-    );
-    const { formsPermissionsRouter } = await import(
-      "../routes/forms-permissions"
-    );
+  ] as const)(
+    "maps permission role update domain failures to $status",
+    async ({ message, status }) => {
+      mocks.updatePermissionRole.mockRejectedValue(
+        namedPermissionServiceError("PermissionUpdateError", status, message),
+      );
+      const { formsPermissionsRouter } = await import(
+        "../routes/forms-permissions"
+      );
 
-    const response = await formsPermissionsRouter.request(
-      "/form-1/permissions/editor-1",
-      {
-        body: JSON.stringify({ role: "VIEWER" }),
-        headers: { "content-type": "application/json" },
-        method: "PUT",
-      },
-    );
+      const response = await formsPermissionsRouter.request(
+        "/form-1/permissions/editor-1",
+        {
+          body: JSON.stringify({ role: "VIEWER" }),
+          headers: { "content-type": "application/json" },
+          method: "PUT",
+        },
+      );
 
-    await expect(response.json()).resolves.toEqual({ error: message });
-    expect(response.status).toBe(status);
-  });
+      await expect(response.json()).resolves.toEqual({ error: message });
+      expect(response.status).toBe(status);
+    },
+  );
 
   it("maps stale permission deletes to conflict responses", async () => {
     mocks.removePermission.mockRejectedValue(

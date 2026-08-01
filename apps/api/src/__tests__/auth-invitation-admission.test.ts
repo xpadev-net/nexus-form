@@ -156,26 +156,26 @@ describe("invitation-gated Discord registration", () => {
     expect(findInvitation).not.toHaveBeenCalled();
   });
 
-  it.each([
-    "malformed",
-    "a".repeat(192),
-  ])("fails closed for invalid invitation token %s", async (invitationToken) => {
-    const { authorizeDiscordSignupRequest } = await import("../lib/auth");
-    const findInvitation = vi.fn(async () => ({
-      expiresAt: new Date(Date.now() + 60_000),
-    }));
+  it.each(["malformed", "a".repeat(192)])(
+    "fails closed for invalid invitation token %s",
+    async (invitationToken) => {
+      const { authorizeDiscordSignupRequest } = await import("../lib/auth");
+      const findInvitation = vi.fn(async () => ({
+        expiresAt: new Date(Date.now() + 60_000),
+      }));
 
-    const decision = await authorizeDiscordSignupRequest({
-      path: "/sign-in/social",
-      body: { provider: "discord", requestSignUp: true },
-      invitationToken,
-      findInvitation,
-    });
+      const decision = await authorizeDiscordSignupRequest({
+        path: "/sign-in/social",
+        body: { provider: "discord", requestSignUp: true },
+        invitationToken,
+        findInvitation,
+      });
 
-    expect(decision.body).toMatchObject({ requestSignUp: false });
-    expect(decision.apply).toBe(true);
-    expect(findInvitation).not.toHaveBeenCalled();
-  });
+      expect(decision.body).toMatchObject({ requestSignUp: false });
+      expect(decision.apply).toBe(true);
+      expect(findInvitation).not.toHaveBeenCalled();
+    },
+  );
 
   it("marks signup intent for an unexpired invitation authorization", async () => {
     const { authorizeDiscordSignupRequest } = await import("../lib/auth");

@@ -64,15 +64,15 @@ describe("getCorsOrigins", () => {
     expect(getCorsOrigins()).toEqual(["https://staging.example.com"]);
   });
 
-  it.each([
-    "development",
-    "test",
-  ] as const)("keeps localhost as the default in %s", (env) => {
-    process.env.NODE_ENV = env;
-    delete process.env.TRUSTED_ORIGINS;
+  it.each(["development", "test"] as const)(
+    "keeps localhost as the default in %s",
+    (env) => {
+      process.env.NODE_ENV = env;
+      delete process.env.TRUSTED_ORIGINS;
 
-    expect(getCorsOrigins()).toEqual(["http://localhost:3000"]);
-  });
+      expect(getCorsOrigins()).toEqual(["http://localhost:3000"]);
+    },
+  );
 });
 
 describe("assertProductionCorsOriginsConfigured", () => {
@@ -84,18 +84,21 @@ describe("assertProductionCorsOriginsConfigured", () => {
     ["ftp://example.com", "non-HTTP(S) URL"],
     ["https://*.example.com", "wildcard hostname"],
     ["https://example.com/path", "path-bearing URL"],
-  ])("rejects production TRUSTED_ORIGINS with %s", (trustedOrigins, _description) => {
-    process.env.NODE_ENV = "production";
-    if (trustedOrigins === undefined) {
-      delete process.env.TRUSTED_ORIGINS;
-    } else {
-      process.env.TRUSTED_ORIGINS = trustedOrigins;
-    }
+  ])(
+    "rejects production TRUSTED_ORIGINS with %s",
+    (trustedOrigins, _description) => {
+      process.env.NODE_ENV = "production";
+      if (trustedOrigins === undefined) {
+        delete process.env.TRUSTED_ORIGINS;
+      } else {
+        process.env.TRUSTED_ORIGINS = trustedOrigins;
+      }
 
-    expect(() => assertProductionCorsOriginsConfigured()).toThrow(
-      "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
-    );
-  });
+      expect(() => assertProductionCorsOriginsConfigured()).toThrow(
+        "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
+      );
+    },
+  );
 
   it("accepts a non-empty set of normalized production origins", () => {
     process.env.NODE_ENV = "production";
@@ -124,46 +127,49 @@ describe("assertProductionCorsOriginsConfigured", () => {
   it.each([
     [undefined, "missing"],
     ["https://*.example.com", "invalid wildcard hostname"],
-  ])("rejects production index module import with %s TRUSTED_ORIGINS", async (trustedOrigins, _description) => {
-    const childEnvironment: NodeJS.ProcessEnv = {
-      ...process.env,
-      NODE_ENV: "production",
-      BETTER_AUTH_SECRET: "test-auth-secret-test-auth-secret",
-      BETTER_AUTH_URL: "http://localhost:3001",
-      DATABASE_URL: "mysql://user:pass@localhost:3306/db",
-      S3_BUCKET_TMP: "tmp-bucket",
-      S3_BUCKET_PROD: "prod-bucket",
-    };
-    if (trustedOrigins === undefined) {
-      delete childEnvironment.TRUSTED_ORIGINS;
-    } else {
-      childEnvironment.TRUSTED_ORIGINS = trustedOrigins;
-    }
+  ])(
+    "rejects production index module import with %s TRUSTED_ORIGINS",
+    async (trustedOrigins, _description) => {
+      const childEnvironment: NodeJS.ProcessEnv = {
+        ...process.env,
+        NODE_ENV: "production",
+        BETTER_AUTH_SECRET: "test-auth-secret-test-auth-secret",
+        BETTER_AUTH_URL: "http://localhost:3001",
+        DATABASE_URL: "mysql://user:pass@localhost:3306/db",
+        S3_BUCKET_TMP: "tmp-bucket",
+        S3_BUCKET_PROD: "prod-bucket",
+      };
+      if (trustedOrigins === undefined) {
+        delete childEnvironment.TRUSTED_ORIGINS;
+      } else {
+        childEnvironment.TRUSTED_ORIGINS = trustedOrigins;
+      }
 
-    let errorOutput = "";
-    try {
-      execFileSync(
-        process.execPath,
-        [
-          "--import",
-          "tsx",
-          "--input-type=module",
-          "--eval",
-          "await import('./src/index.ts')",
-        ],
-        {
-          cwd: process.cwd(),
-          env: childEnvironment,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "pipe"],
-        },
+      let errorOutput = "";
+      try {
+        execFileSync(
+          process.execPath,
+          [
+            "--import",
+            "tsx",
+            "--input-type=module",
+            "--eval",
+            "await import('./src/index.ts')",
+          ],
+          {
+            cwd: process.cwd(),
+            env: childEnvironment,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
+      } catch (error) {
+        errorOutput = getProcessErrorOutput(error);
+      }
+
+      expect(errorOutput).toContain(
+        "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
       );
-    } catch (error) {
-      errorOutput = getProcessErrorOutput(error);
-    }
-
-    expect(errorOutput).toContain(
-      "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
-    );
-  });
+    },
+  );
 });

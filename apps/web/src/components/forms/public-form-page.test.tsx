@@ -1161,10 +1161,12 @@ describe("PublicFormPage", () => {
     });
     const closeArgs = apiMocks.exchangeClosePost.mock.calls[0]?.[0];
     const reportedFingerprints = (
-      closeArgs?.json as {
-        fp?: Array<{ type: string; name: string }>;
-      }
-    ).fp;
+      closeArgs?.json as
+        | {
+            fp?: Array<{ type: string; name: string }>;
+          }
+        | undefined
+    )?.fp;
     expect(reportedFingerprints).toBeDefined();
     expect(reportedFingerprints?.length).toBeLessThanOrEqual(200);
     expect(reportedFingerprints).toEqual(
