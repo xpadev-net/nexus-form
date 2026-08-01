@@ -602,6 +602,42 @@ describe("FormResponsesContent accessibility", () => {
     act(() => root.unmount());
   });
 
+  it("hides management controls when canManageResponses is false", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    act(() => {
+      root.render(
+        <FormResponsesContent formId="form-1" canManageResponses={false} />,
+      );
+    });
+
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("選択を再検証"),
+      ),
+    ).toBeUndefined();
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector('button[aria-label="回答を再検証"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="回答を削除"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="回答詳細を閉じる"]'),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
   it("shows a retryable error state without rendering the empty state", () => {
     queryMock.state = {
       ...queryMock.state,

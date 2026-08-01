@@ -288,7 +288,7 @@ describe("SSE keepalive handling", () => {
     expect(checkFormPermissionLevel).toHaveBeenCalledWith(
       { user_id: "user-1" },
       "form-1",
-      "EDITOR",
+      "VIEWER",
     );
     expect(release).toHaveBeenCalledTimes(1);
     expect(detach).toHaveBeenCalledTimes(1);
