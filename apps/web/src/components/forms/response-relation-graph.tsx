@@ -2082,6 +2082,12 @@ type OpenEdgeWindow = {
   zIndex: number;
 };
 
+// Floating response/edge windows are draggable popups the user actively
+// opened and must always render above the suspicion-groups overlay panel
+// (which uses Tailwind's `z-30`) rather than being hidden behind it —
+// starting the counter here, comfortably above 30, keeps every window
+// above the panel without the two having to coordinate on every change.
+const floatingWindowBaseZIndex = 40;
 const windowCascadeStep = 32;
 const windowInitialPosition = { x: 80, y: 96 };
 const defaultResponseWindowSize: WindowSize = { width: 420, height: 480 };
@@ -2207,7 +2213,7 @@ function useSuspicionGroupsOverlay(formId: string): SuspicionGroupsOverlay {
 export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   const [openWindows, setOpenWindows] = useState<OpenResponseWindow[]>([]);
   const [openEdgeWindows, setOpenEdgeWindows] = useState<OpenEdgeWindow[]>([]);
-  const zIndexCounterRef = useRef(1);
+  const zIndexCounterRef = useRef(floatingWindowBaseZIndex);
   const [selectedCluster, setSelectedCluster] = useState<DenseCluster | null>(
     null,
   );

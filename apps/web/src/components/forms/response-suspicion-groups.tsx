@@ -26,7 +26,7 @@ type ResponseSuspicionGroupsProps = {
   onSelectResponse: (responseId: string) => void;
 };
 
-type SuspicionGroupListItem = ResponseSuspicionGroupsResponse["groups"][number];
+type SuspicionGroupSummary = ResponseSuspicionGroupsResponse["groups"][number];
 
 function confidenceLabel(strength: string): string {
   switch (strength) {
@@ -102,7 +102,7 @@ function useGroupDetailQuery(
 
 type SuspicionGroupListItemProps = {
   formId: string;
-  group: SuspicionGroupListItem;
+  group: SuspicionGroupSummary;
   isSelected: boolean;
   onToggleSelect: () => void;
   onHoverGroup: () => void;

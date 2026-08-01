@@ -599,7 +599,12 @@ describe("computeSuspicionGroupComponents", () => {
     targetId: string,
     strength: "SUPPORT" | "STRONG" | "HARD",
     reasonCodes: string[] = [],
-  ) {
+  ): {
+    sourceId: string;
+    targetId: string;
+    edge: GraphEdge;
+    cluster: null;
+  } {
     return {
       sourceId,
       targetId,
