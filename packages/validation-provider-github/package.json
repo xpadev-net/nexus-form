@@ -17,7 +17,7 @@
   "scripts": {
     "prebuild": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsdown",
-    "type-check": "tsgo --noEmit",
+    "type-check": "tsc --noEmit",
     "lint": "biome check",
     "lint:fix": "biome check --write --unsafe",
     "test": "vitest run"
@@ -31,9 +31,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
     "@types/node": "^24.12.4",
-    "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "tsdown": "^0.22.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }
 }

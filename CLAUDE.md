@@ -113,7 +113,7 @@ Environment variables live in `.env.local` (git-ignored); document any new keys 
 - When adding a dependency, install it in the correct workspace package (`pnpm --filter <package-name> add <dep>`), not at the root.
 
 ## Active Technologies
-- **Runtime**: TypeScript 5.9, Node.js
+- **Runtime**: TypeScript 7.0, Node.js
 - **Frontend**: Vite 7, React 19, TanStack Router, TanStack React Query, Tailwind CSS 4, Radix UI, shadcn/ui, react-hook-form
 - **Backend**: Hono, better-auth, BullMQ, IORedis
 - **Database**: MySQL (Drizzle ORM, drizzle-kit)

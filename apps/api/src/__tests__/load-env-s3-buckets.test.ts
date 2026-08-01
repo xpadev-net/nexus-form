@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { resolveS3BucketConfig } from "../lib/s3/utils";
 
@@ -12,18 +11,9 @@ describe("load-env S3 bucket validation", () => {
       resolve(repoRoot, "apps/api/src/load-env.ts"),
       "utf8",
     );
-    const ast = ts.createSourceFile(
-      "load-env.ts",
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    );
-    const callExpressions = ast.statements
-      .filter(ts.isExpressionStatement)
-      .map((statement) => statement.expression)
-      .filter(ts.isCallExpression)
-      .map((call) => call.expression.getText(ast));
+    const callExpressions = Array.from(
+      source.matchAll(/^([a-zA-Z0-9_$]+)\(/gm),
+    ).map((match) => match[1]);
 
     expect(callExpressions).toEqual([
       "loadEnvFileSync",
