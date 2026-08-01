@@ -356,6 +356,9 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     mocks.offsetCalls.length = 0;
     mocks.limitCalls.length = 0;
     mocks.formAuthRoles.length = 0;
+    // Defaults to OWNER so every other test in this file keeps exercising
+    // routes without hitting the withDualFormAuth mock's 403 branch; only the
+    // role-enforcement test below lowers this to VIEWER/EDITOR.
     mocks.currentAuthRole = "OWNER";
   });
 
