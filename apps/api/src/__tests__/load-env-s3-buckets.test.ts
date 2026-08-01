@@ -1,10 +1,157 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { resolveS3BucketConfig } from "../lib/s3/utils";
 
 const repoRoot = resolve(import.meta.dirname, "../../../..");
+
+function sanitizeCode(src: string): string {
+  let result = "";
+  let i = 0;
+  const len = src.length;
+
+  while (i < len) {
+    if (src[i] === '"' || src[i] === "'") {
+      const quote = src[i];
+      i++;
+      while (i < len && src[i] !== quote) {
+        if (src[i] === "\\") i++;
+        i++;
+      }
+      if (i < len) i++;
+      result += '""';
+      continue;
+    }
+    if (src[i] === "`") {
+      i++;
+      let depth = 0;
+      while (i < len) {
+        if (src[i] === "\\") {
+          i += 2;
+          continue;
+        }
+        if (src[i] === "`" && depth === 0) {
+          i++;
+          break;
+        }
+        if (src[i] === "$" && src[i + 1] === "{") {
+          depth++;
+          i += 2;
+          continue;
+        }
+        if (src[i] === "}" && depth > 0) {
+          depth--;
+          i++;
+          continue;
+        }
+        i++;
+      }
+      result += '""';
+      continue;
+    }
+    if (src[i] === "/" && src[i + 1] === "/") {
+      i += 2;
+      while (i < len && src[i] !== "\n" && src[i] !== "\r") i++;
+      continue;
+    }
+    if (src[i] === "/" && src[i + 1] === "*") {
+      i += 2;
+      while (i < len && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      if (i < len) i += 2;
+      continue;
+    }
+    result += src[i];
+    i++;
+  }
+  return result;
+}
+
+function getTopLevelCallExpressions(source: string): string[] {
+  const clean = sanitizeCode(source);
+  let braceDepth = 0;
+  let parenDepth = 0;
+  let currentToken = "";
+  let lastWord = "";
+  const calls: string[] = [];
+
+  const keywords = new Set([
+    "if",
+    "for",
+    "while",
+    "switch",
+    "catch",
+    "return",
+    "throw",
+    "function",
+    "const",
+    "let",
+    "var",
+    "export",
+    "import",
+    "type",
+    "interface",
+  ]);
+
+  let i = 0;
+  while (i < clean.length) {
+    const ch = clean[i];
+    if (!ch) {
+      i++;
+      continue;
+    }
+
+    if (ch === "{") {
+      braceDepth++;
+      currentToken = "";
+      i++;
+      continue;
+    }
+    if (ch === "}") {
+      if (braceDepth > 0) braceDepth--;
+      currentToken = "";
+      i++;
+      continue;
+    }
+
+    if (braceDepth === 0) {
+      if (ch === "(") {
+        const name = currentToken.trim();
+        if (
+          name &&
+          /^[a-zA-Z0-9_$]+$/.test(name) &&
+          !keywords.has(name) &&
+          lastWord !== "function" &&
+          lastWord !== "=>" &&
+          name !== "resolve"
+        ) {
+          calls.push(name);
+        }
+        parenDepth++;
+        currentToken = "";
+      } else if (ch === ")") {
+        if (parenDepth > 0) parenDepth--;
+        currentToken = "";
+      } else if (/\s/.test(ch)) {
+        if (currentToken.trim()) {
+          lastWord = currentToken.trim();
+        }
+        currentToken = "";
+      } else if (/[a-zA-Z0-9_$]/.test(ch)) {
+        currentToken += ch;
+      } else {
+        if (ch === "=" && clean[i + 1] === ">") {
+          lastWord = "=>";
+          i += 2;
+          continue;
+        }
+        currentToken = "";
+      }
+    }
+    i++;
+  }
+
+  return calls;
+}
 
 describe("load-env S3 bucket validation", () => {
   it("validates S3 buckets after synchronous dotenv loading", () => {
@@ -12,18 +159,7 @@ describe("load-env S3 bucket validation", () => {
       resolve(repoRoot, "apps/api/src/load-env.ts"),
       "utf8",
     );
-    const ast = ts.createSourceFile(
-      "load-env.ts",
-      source,
-      ts.ScriptTarget.Latest,
-      true,
-      ts.ScriptKind.TS,
-    );
-    const callExpressions = ast.statements
-      .filter(ts.isExpressionStatement)
-      .map((statement) => statement.expression)
-      .filter(ts.isCallExpression)
-      .map((call) => call.expression.getText(ast));
+    const callExpressions = getTopLevelCallExpressions(source);
 
     expect(callExpressions).toEqual([
       "loadEnvFileSync",
