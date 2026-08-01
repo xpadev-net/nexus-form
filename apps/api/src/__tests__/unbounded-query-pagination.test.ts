@@ -340,12 +340,12 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     mocks.formAuthRoles.length = 0;
   });
 
-  it("requires editor access for response data routes", async () => {
+  it("requires at least viewer access for response data routes and editor access for mutations", async () => {
     await import("../routes/forms-responses");
     await import("../routes/forms-sse");
 
+    expect(mocks.formAuthRoles).toContain("VIEWER");
     expect(mocks.formAuthRoles).toContain("EDITOR");
-    expect(mocks.formAuthRoles).not.toContain("VIEWER");
   });
 
   it("applies limit and offset to response id lists", async () => {

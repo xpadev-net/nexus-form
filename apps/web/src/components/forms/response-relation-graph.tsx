@@ -33,6 +33,7 @@ import { ResponseSuspicionGroups } from "./response-suspicion-groups";
 
 type ResponseRelationGraphProps = {
   formId: string;
+  canManageResponses: boolean;
 };
 
 type GraphNode = ResponseRelationGraphResponse["nodes"][number];
@@ -2210,7 +2211,10 @@ function useSuspicionGroupsOverlay(formId: string): SuspicionGroupsOverlay {
   };
 }
 
-export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
+export function ResponseRelationGraph({
+  formId,
+  canManageResponses,
+}: ResponseRelationGraphProps) {
   const [openWindows, setOpenWindows] = useState<OpenResponseWindow[]>([]);
   const [openEdgeWindows, setOpenEdgeWindows] = useState<OpenEdgeWindow[]>([]);
   const zIndexCounterRef = useRef(floatingWindowBaseZIndex);
@@ -2486,6 +2490,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           {suspicionGroupsOverlay.isOpen && (
             <ResponseSuspicionGroups
               formId={formId}
+              canManageResponses={canManageResponses}
               onClose={suspicionGroupsOverlay.close}
               onHoverResponses={suspicionGroupsOverlay.handleHoverResponses}
               onSelectResponse={openResponseWindow}

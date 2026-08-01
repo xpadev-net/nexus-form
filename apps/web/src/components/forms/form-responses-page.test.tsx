@@ -50,7 +50,11 @@ function renderResponses(container: HTMLElement, shareToken?: string): Root {
   const root = createRoot(container);
   act(() => {
     root.render(
-      <FormResponsesContent formId="form-1" shareToken={shareToken} />,
+      <FormResponsesContent
+        formId="form-1"
+        shareToken={shareToken}
+        canManageResponses
+      />,
     );
   });
   return root;
@@ -575,7 +579,7 @@ describe("FormResponsesContent accessibility", () => {
     };
 
     act(() => {
-      root.render(<FormResponsesContent formId="form-1" />);
+      root.render(<FormResponsesContent formId="form-1" canManageResponses />);
     });
 
     expect(container.textContent).toContain("新しいページを読み込み中です。");
@@ -1256,7 +1260,7 @@ describe("FormResponsesContent accessibility", () => {
     };
 
     act(() => {
-      root.render(<FormResponsesContent formId="form-1" />);
+      root.render(<FormResponsesContent formId="form-1" canManageResponses />);
     });
 
     expect(container.textContent).toContain(
@@ -1272,7 +1276,7 @@ describe("FormResponsesContent accessibility", () => {
     };
 
     act(() => {
-      root.render(<FormResponsesContent formId="form-1" />);
+      root.render(<FormResponsesContent formId="form-1" canManageResponses />);
     });
 
     expect(container.textContent).toContain("回答一覧を読み込めませんでした。");

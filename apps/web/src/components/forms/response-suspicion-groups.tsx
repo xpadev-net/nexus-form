@@ -18,6 +18,7 @@ import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
 type ResponseSuspicionGroupsProps = {
   formId: string;
+  canManageResponses: boolean;
   onClose: () => void;
   /** Fired while hovering a group (all its members) or a single response
    * within the detail panel, `null` on hover-out, so the graph can dim
@@ -294,6 +295,7 @@ function SuspicionGroupListItem({
  */
 export function ResponseSuspicionGroups({
   formId,
+  canManageResponses,
   onClose,
   onHoverResponses,
   onSelectResponse,
@@ -372,20 +374,22 @@ export function ResponseSuspicionGroups({
           疑義グループ
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7"
-            onClick={() => recalculateMutation.mutate()}
-            disabled={recalculateMutation.isPending}
-          >
-            {recalculateMutation.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-          </Button>
+          {canManageResponses && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7"
+              onClick={() => recalculateMutation.mutate()}
+              disabled={recalculateMutation.isPending}
+            >
+              {recalculateMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"

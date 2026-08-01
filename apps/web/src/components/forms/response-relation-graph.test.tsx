@@ -698,7 +698,9 @@ describe("ResponseRelationGraph", () => {
     document.body.append(graphContainer);
     const graphRoot = createRoot(graphContainer);
     act(() => {
-      graphRoot.render(<ResponseRelationGraph formId="form-1" />);
+      graphRoot.render(
+        <ResponseRelationGraph formId="form-1" canManageResponses />,
+      );
     });
     return { graphContainer, graphRoot };
   }
@@ -871,7 +873,9 @@ describe("ResponseRelationGraph", () => {
     // previous form's highlighted response id matches nothing in the newly
     // loaded graph, so it must not leave every node dimmed indefinitely.
     act(() => {
-      graphRoot.render(<ResponseRelationGraph formId="form-2" />);
+      graphRoot.render(
+        <ResponseRelationGraph formId="form-2" canManageResponses />,
+      );
     });
 
     const otherNodeCircleAfterFormChange = graphContainer.querySelector(

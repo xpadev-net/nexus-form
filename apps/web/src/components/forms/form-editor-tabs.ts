@@ -12,7 +12,6 @@ export const EDIT_ONLY_TAB_KEYS = [
   "settings",
   "validation",
   "sharing",
-  "responses",
 ] as const satisfies readonly EditorTab[];
 
 const EDITOR_TAB_VALUES: ReadonlySet<string> = new Set(EDITOR_TABS);
