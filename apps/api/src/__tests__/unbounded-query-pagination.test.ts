@@ -18,7 +18,14 @@ const mocks = vi.hoisted(() => ({
   calculateFormDiff: vi.fn(),
   checkUnpublishedChanges: vi.fn(),
   formAuthRoles: [] as Array<unknown>,
+  currentAuthRole: "OWNER" as "VIEWER" | "EDITOR" | "OWNER",
 }));
+
+const FORM_ROLE_PRIORITY: Record<"VIEWER" | "EDITOR" | "OWNER", number> = {
+  VIEWER: 1,
+  EDITOR: 2,
+  OWNER: 3,
+};
 
 vi.mock("@nexus-form/database", () => ({
   db: mocks.db,
@@ -92,12 +99,23 @@ vi.mock("@nexus-form/database/schema", () => ({
 }));
 
 vi.mock("../lib/dual-auth", () => ({
-  withDualFormAuth: (requiredRole?: unknown) => {
+  withDualFormAuth: (
+    requiredRole: "VIEWER" | "EDITOR" | "OWNER" = "VIEWER",
+  ) => {
     mocks.formAuthRoles.push(requiredRole);
     return async (
-      c: { set?: (key: string, value: unknown) => void },
+      c: {
+        set?: (key: string, value: unknown) => void;
+        json: (body: unknown, status?: number) => unknown;
+      },
       next: () => Promise<void>,
     ) => {
+      if (
+        FORM_ROLE_PRIORITY[mocks.currentAuthRole] <
+        FORM_ROLE_PRIORITY[requiredRole]
+      ) {
+        return c.json({ error: { message: "Insufficient permissions" } }, 403);
+      }
       c.set?.("dualAuthContext", { user_id: "user-1" });
       await next();
     };
@@ -338,14 +356,38 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     mocks.offsetCalls.length = 0;
     mocks.limitCalls.length = 0;
     mocks.formAuthRoles.length = 0;
+    mocks.currentAuthRole = "OWNER";
   });
 
   it("requires at least viewer access for response data routes and editor access for mutations", async () => {
-    await import("../routes/forms-responses");
-    await import("../routes/forms-sse");
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
 
-    expect(mocks.formAuthRoles).toContain("VIEWER");
-    expect(mocks.formAuthRoles).toContain("EDITOR");
+    mocks.currentAuthRole = "VIEWER";
+
+    const listRes = await formsResponsesRouter.request("/form-1/responses");
+    expect(listRes.status).toBe(200);
+
+    const deleteRes = await formsResponsesRouter.request(
+      "/form-1/responses/response-1",
+      { method: "DELETE" },
+    );
+    expect(deleteRes.status).toBe(403);
+
+    const revalidateRes = await formsResponsesRouter.request(
+      "/form-1/responses/validation/revalidate",
+      {
+        body: JSON.stringify({ responseIds: ["response-1"] }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+    expect(revalidateRes.status).toBe(403);
+
+    mocks.currentAuthRole = "EDITOR";
+
+    const editorListRes =
+      await formsResponsesRouter.request("/form-1/responses");
+    expect(editorListRes.status).toBe(200);
   });
 
   it("applies limit and offset to response id lists", async () => {

@@ -336,7 +336,7 @@ async function expectViewerEditorIsReadOnly(
   await expect(page.getByRole("tab", { name: /設定/ })).toBeDisabled();
   await expect(page.getByRole("tab", { name: /検証/ })).toBeDisabled();
   await expect(page.getByRole("tab", { name: /共有/ })).toBeDisabled();
-  await expect(page.getByRole("tab", { name: /回答/ })).toBeDisabled();
+  await expect(page.getByRole("tab", { name: /回答/ })).toBeEnabled();
 
   await page.goto(
     `/forms/${formId}/edit?shareToken=${encodeURIComponent(
