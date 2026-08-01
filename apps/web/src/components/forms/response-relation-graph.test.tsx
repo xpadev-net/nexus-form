@@ -781,6 +781,53 @@ describe("ResponseRelationGraph", () => {
     graphContainer.remove();
   });
 
+  it("also clears the dimming when the overlay is closed via the toolbar toggle button, not just its own close button", () => {
+    const { nodes, nodeB, edge } = twoNodeEdgeFixture();
+    const { graphContainer, graphRoot } = renderGraph(
+      graphResponse(nodes, [edge]),
+    );
+
+    const toggleButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("疑義グループ"));
+    if (!toggleButton) {
+      throw new Error("Expected the suspicion-groups toggle button");
+    }
+    act(() => {
+      fireEvent.click(toggleButton);
+    });
+
+    const hoverButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent === "hover response-0");
+    if (!hoverButton) {
+      throw new Error("Expected the mocked overlay's hover button");
+    }
+    act(() => {
+      fireEvent.click(hoverButton);
+    });
+
+    const otherNodeCircle = graphContainer.querySelector(
+      `a[href="#response-${nodeB.responseId}"] circle`,
+    );
+    if (!otherNodeCircle) {
+      throw new Error("Expected the non-hovered node's circle to exist");
+    }
+    expect(otherNodeCircle.classList.contains("opacity-25")).toBe(true);
+
+    // Close via the toolbar toggle (the same button that opened it), not
+    // the overlay's own close button.
+    act(() => {
+      fireEvent.click(toggleButton);
+    });
+
+    expect(otherNodeCircle.classList.contains("opacity-100")).toBe(true);
+    expect(otherNodeCircle.classList.contains("opacity-25")).toBe(false);
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
+  });
+
   it("opens multiple floating response windows and closes them independently", () => {
     const { nodes, nodeA, nodeB, edge } = twoNodeEdgeFixture();
     const { graphContainer, graphRoot } = renderGraph(

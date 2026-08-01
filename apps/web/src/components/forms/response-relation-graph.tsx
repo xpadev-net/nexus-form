@@ -2166,11 +2166,18 @@ function useSuspicionGroupsOverlay(): SuspicionGroupsOverlay {
   const [highlightedResponseIds, setHighlightedResponseIds] =
     useState<Set<string> | null>(null);
 
+  // The overlay can close two ways — its own close button (`close`) and the
+  // toolbar toggle button (`toggle`) — and a hover can be in flight when
+  // either happens. Clearing the highlight here, keyed only on `isOpen`
+  // going false, makes that true regardless of which path closed it (and
+  // for any future one), rather than requiring every closer to remember to
+  // reset it individually.
+  useEffect(() => {
+    if (!isOpen) setHighlightedResponseIds(null);
+  }, [isOpen]);
+
   const toggle = useCallback(() => setIsOpen((current) => !current), []);
-  const close = useCallback(() => {
-    setIsOpen(false);
-    setHighlightedResponseIds(null);
-  }, []);
+  const close = useCallback(() => setIsOpen(false), []);
   // Stable identity so it doesn't re-trigger the hover effect inside
   // `ResponseSuspicionGroups` on every render (which would otherwise call
   // back into `setHighlightedResponseIds` with a fresh `Set` each time and
