@@ -110,7 +110,10 @@ function getTopLevelCallExpressions(source: string): string[] {
   const matches = Array.from(topLevel.matchAll(/\b([a-zA-Z0-9_$]+)\s*\(/g)).map(
     (m) => m[1],
   );
-  return matches.filter((name) => !keywords.has(name) && name !== "resolve");
+  return matches.filter(
+    (name: string | undefined): name is string =>
+      typeof name === "string" && !keywords.has(name) && name !== "resolve",
+  );
 }
 
 describe("load-env S3 bucket validation", () => {
