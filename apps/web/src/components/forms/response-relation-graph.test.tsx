@@ -828,6 +828,64 @@ describe("ResponseRelationGraph", () => {
     graphContainer.remove();
   });
 
+  it("clears the dimming when the active form changes while the overlay is still open with a highlight active", () => {
+    const { nodes, nodeB, edge } = twoNodeEdgeFixture();
+    const { graphContainer, graphRoot } = renderGraph(
+      graphResponse(nodes, [edge]),
+    );
+
+    const toggleButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("疑義グループ"));
+    if (!toggleButton) {
+      throw new Error("Expected the suspicion-groups toggle button");
+    }
+    act(() => {
+      fireEvent.click(toggleButton);
+    });
+
+    const hoverButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent === "hover response-0");
+    if (!hoverButton) {
+      throw new Error("Expected the mocked overlay's hover button");
+    }
+    act(() => {
+      fireEvent.click(hoverButton);
+    });
+
+    const otherNodeCircle = graphContainer.querySelector(
+      `a[href="#response-${nodeB.responseId}"] circle`,
+    );
+    if (!otherNodeCircle) {
+      throw new Error("Expected the non-hovered node's circle to exist");
+    }
+    expect(otherNodeCircle.classList.contains("opacity-25")).toBe(true);
+
+    // Navigate to a different form without the overlay closing — the
+    // previous form's highlighted response id matches nothing in the newly
+    // loaded graph, so it must not leave every node dimmed indefinitely.
+    act(() => {
+      graphRoot.render(<ResponseRelationGraph formId="form-2" />);
+    });
+
+    const otherNodeCircleAfterFormChange = graphContainer.querySelector(
+      `a[href="#response-${nodeB.responseId}"] circle`,
+    );
+    if (!otherNodeCircleAfterFormChange) {
+      throw new Error("Expected the node's circle to still exist");
+    }
+    expect(
+      otherNodeCircleAfterFormChange.classList.contains("opacity-100"),
+    ).toBe(true);
+    expect(
+      otherNodeCircleAfterFormChange.classList.contains("opacity-25"),
+    ).toBe(false);
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
+  });
+
   it("opens multiple floating response windows and closes them independently", () => {
     const { nodes, nodeA, nodeB, edge } = twoNodeEdgeFixture();
     const { graphContainer, graphRoot } = renderGraph(

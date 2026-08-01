@@ -2159,9 +2159,13 @@ type SuspicionGroupsOverlay = {
  * it set" a property of the hook itself, rather than something every call
  * site has to remember to do — closing while a group/response is still
  * hovered must not leave the graph permanently dimmed, since there's no
- * more overlay left to un-hover it from.
+ * more overlay left to un-hover it from. `formId` is watched for the same
+ * reason: if it changes while the overlay is open with a highlight active
+ * (e.g. navigating to a different form without unmounting this component),
+ * the previous form's response ids match nothing in the newly loaded
+ * graph and would otherwise leave every node dimmed indefinitely.
  */
-function useSuspicionGroupsOverlay(): SuspicionGroupsOverlay {
+function useSuspicionGroupsOverlay(formId: string): SuspicionGroupsOverlay {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedResponseIds, setHighlightedResponseIds] =
     useState<Set<string> | null>(null);
@@ -2175,6 +2179,11 @@ function useSuspicionGroupsOverlay(): SuspicionGroupsOverlay {
   useEffect(() => {
     if (!isOpen) setHighlightedResponseIds(null);
   }, [isOpen]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset the highlight when the active form changes.
+  useEffect(() => {
+    setHighlightedResponseIds(null);
+  }, [formId]);
 
   const toggle = useCallback(() => setIsOpen((current) => !current), []);
   const close = useCallback(() => setIsOpen(false), []);
@@ -2202,7 +2211,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   const [selectedCluster, setSelectedCluster] = useState<DenseCluster | null>(
     null,
   );
-  const suspicionGroupsOverlay = useSuspicionGroupsOverlay();
+  const suspicionGroupsOverlay = useSuspicionGroupsOverlay(formId);
   const graphQuery = useQuery({
     queryKey: ["responseRelationGraph", formId],
     queryFn: (): Promise<ResponseRelationGraphResponse> =>
