@@ -7,6 +7,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addLinkedPair,
+  computeSuspicionGroupComponents,
+  forceGroupCohesion,
   forceMinSeparation,
   type LayoutNode,
   type LinkedNeighbors,
@@ -47,6 +49,27 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("./response-detail-view", () => ({
   ResponseDetailView: ({ responseId }: { responseId: string }) => (
     <div data-testid="response-detail">{responseId}</div>
+  ),
+}));
+
+type SuspicionGroupsOverlayProps = {
+  onClose: () => void;
+  onHoverResponses: (responseIds: string[] | null) => void;
+};
+
+vi.mock("./response-suspicion-groups", () => ({
+  ResponseSuspicionGroups: ({
+    onClose,
+    onHoverResponses,
+  }: SuspicionGroupsOverlayProps) => (
+    <div data-testid="suspicion-groups-overlay">
+      <button type="button" onClick={() => onHoverResponses(["response-0"])}>
+        hover response-0
+      </button>
+      <button type="button" onClick={onClose}>
+        close overlay
+      </button>
+    </div>
   ),
 }));
 
@@ -534,6 +557,130 @@ describe("forceMinSeparation", () => {
   });
 });
 
+describe("forceGroupCohesion", () => {
+  function layoutNode(id: string, x: number, y: number): LayoutNode {
+    return { id, node: null, hidden: false, x, y, vx: 0, vy: 0 };
+  }
+
+  it("pulls a component's members toward their shared centroid", () => {
+    // Centroid of (0,0), (100,0), (50,0) is (50,0), so the leftmost and
+    // rightmost members should be pulled toward each other and the middle
+    // one should stay put.
+    const a = layoutNode("a", 0, 0);
+    const b = layoutNode("b", 100, 0);
+    const c = layoutNode("c", 50, 0);
+    const force = forceGroupCohesion(new Map([["a", ["a", "b", "c"]]]), {
+      strength: 0.5,
+    });
+    force.initialize?.([a, b, c], Math.random);
+    force(1);
+
+    expect(a.vx).toBeGreaterThan(0);
+    expect(b.vx).toBeLessThan(0);
+    expect(c.vx).toBe(0);
+  });
+
+  it("does nothing for a singleton component", () => {
+    const a = layoutNode("a", 0, 0);
+    const force = forceGroupCohesion(new Map([["a", ["a"]]]), {
+      strength: 0.5,
+    });
+    force.initialize?.([a], Math.random);
+    force(1);
+
+    expect(a.vx).toBe(0);
+    expect(a.vy).toBe(0);
+  });
+});
+
+describe("computeSuspicionGroupComponents", () => {
+  function link(
+    sourceId: string,
+    targetId: string,
+    strength: "SUPPORT" | "STRONG" | "HARD",
+    reasonCodes: string[] = [],
+  ) {
+    return {
+      sourceId,
+      targetId,
+      cluster: null,
+      edge: {
+        ...graphEdge(sourceId, targetId),
+        strength,
+        reasonCodes,
+      },
+    };
+  }
+
+  it("unions responses linked by a HARD edge", () => {
+    const components = computeSuspicionGroupComponents(
+      ["a", "b"],
+      [link("a", "b", "HARD", ["hard:session"])],
+    );
+
+    expect(components.get("a")).toBe(components.get("b"));
+  });
+
+  it("unions responses linked by an identity-anchored STRONG edge", () => {
+    const components = computeSuspicionGroupComponents(
+      ["a", "b"],
+      [link("a", "b", "STRONG", ["strong:telemetry:v6"])],
+    );
+
+    expect(components.get("a")).toBe(components.get("b"));
+  });
+
+  it("does not union responses linked only by SUPPORT edges, even chained through a middle node", () => {
+    // a-b and b-c are each SUPPORT-only, so despite the chain, a and c (and
+    // b) must NOT end up in the same group — a school computer lab sharing
+    // coincidentally similar device fingerprints must not visually balloon
+    // into one confirmed suspicion group.
+    const components = computeSuspicionGroupComponents(
+      ["a", "b", "c"],
+      [
+        link("a", "b", "SUPPORT", ["support:device"]),
+        link("b", "c", "SUPPORT", ["support:device"]),
+      ],
+    );
+
+    expect(components.get("a")).not.toBe(components.get("b"));
+    expect(components.get("b")).not.toBe(components.get("c"));
+    expect(components.get("a")).not.toBe(components.get("c"));
+  });
+
+  it("does not union responses linked only by an aggregate-only STRONG edge (multiple-device-families without an identity anchor)", () => {
+    const components = computeSuspicionGroupComponents(
+      ["a", "b"],
+      [link("a", "b", "STRONG", ["strong:multiple-device-families"])],
+    );
+
+    expect(components.get("a")).not.toBe(components.get("b"));
+  });
+
+  it("always unions members of a dense-cluster hub link regardless of edge strength", () => {
+    // A hub link is identified by `cluster` being set (`edge` is always
+    // null for it), not by edge strength — so even though these carry no
+    // identity-anchored edge at all, the hub must still union them.
+    const cluster = {
+      id: "cluster-1",
+      responseIds: ["a", "b"],
+      strength: "SUPPORT" as const,
+      reasonCode: "dense:pair-links-omitted",
+      pairCount: 1,
+    };
+    const components = computeSuspicionGroupComponents(
+      ["hub", "a", "b"],
+      [
+        { sourceId: "hub", targetId: "a", edge: null, cluster },
+        { sourceId: "hub", targetId: "b", edge: null, cluster },
+      ],
+    );
+
+    expect(components.get("hub")).toBe(components.get("a"));
+    expect(components.get("hub")).toBe(components.get("b"));
+  });
+});
+
 describe("ResponseRelationGraph", () => {
   beforeEach(() => {
     relationGraphApiMocks.get.mockReset();
@@ -575,6 +722,63 @@ describe("ResponseRelationGraph", () => {
 
   afterEach(() => {
     relationGraphQueryData = undefined;
+  });
+
+  it("dims non-highlighted nodes while the suspicion-groups overlay reports a hover, and clears the dimming when the overlay is closed", () => {
+    const { nodes, nodeB, edge } = twoNodeEdgeFixture();
+    const { graphContainer, graphRoot } = renderGraph(
+      graphResponse(nodes, [edge]),
+    );
+
+    const toggleButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("疑義グループ"));
+    if (!toggleButton) {
+      throw new Error("Expected the suspicion-groups toggle button");
+    }
+    act(() => {
+      fireEvent.click(toggleButton);
+    });
+
+    const otherNodeCircle = graphContainer.querySelector(
+      `a[href="#response-${nodeB.responseId}"] circle`,
+    );
+    if (!otherNodeCircle) {
+      throw new Error("Expected the non-hovered node's circle to exist");
+    }
+    expect(otherNodeCircle.classList.contains("opacity-100")).toBe(true);
+
+    const hoverButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent === "hover response-0");
+    if (!hoverButton) {
+      throw new Error("Expected the mocked overlay's hover button");
+    }
+    act(() => {
+      fireEvent.click(hoverButton);
+    });
+
+    // response-0 is highlighted by the overlay, so response-1 (nodeB) must
+    // be dimmed even though nothing in the graph itself is being hovered.
+    expect(otherNodeCircle.classList.contains("opacity-25")).toBe(true);
+
+    const closeButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent === "close overlay");
+    if (!closeButton) {
+      throw new Error("Expected the mocked overlay's close button");
+    }
+    act(() => {
+      fireEvent.click(closeButton);
+    });
+
+    // Closing the overlay while a hover was still active must not leave the
+    // graph permanently dimmed — there's no more overlay to un-hover from.
+    expect(otherNodeCircle.classList.contains("opacity-100")).toBe(true);
+    expect(otherNodeCircle.classList.contains("opacity-25")).toBe(false);
+
+    act(() => graphRoot.unmount());
+    graphContainer.remove();
   });
 
   it("opens multiple floating response windows and closes them independently", () => {

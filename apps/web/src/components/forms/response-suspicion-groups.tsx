@@ -2,9 +2,14 @@ import type {
   ResponseSuspicionGroupDetailResponse,
   ResponseSuspicionGroupsResponse,
 } from "@nexus-form/shared";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { AlertTriangle, Link2, Loader2, RefreshCw, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +25,8 @@ type ResponseSuspicionGroupsProps = {
   onHoverResponses: (responseIds: string[] | null) => void;
   onSelectResponse: (responseId: string) => void;
 };
+
+type SuspicionGroupListItem = ResponseSuspicionGroupsResponse["groups"][number];
 
 function confidenceLabel(strength: string): string {
   switch (strength) {
@@ -75,7 +82,10 @@ function familyLabel(family: string): string {
   }
 }
 
-function useGroupDetailQuery(formId: string, groupKey: string | null) {
+function useGroupDetailQuery(
+  formId: string,
+  groupKey: string | null,
+): UseQueryResult<ResponseSuspicionGroupDetailResponse> {
   return useQuery({
     queryKey: ["responseSuspicionGroupDetail", formId, groupKey],
     enabled: groupKey !== null,
@@ -88,6 +98,192 @@ function useGroupDetailQuery(formId: string, groupKey: string | null) {
         ),
       ),
   });
+}
+
+type SuspicionGroupListItemProps = {
+  formId: string;
+  group: SuspicionGroupListItem;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+  onHoverGroup: () => void;
+  onUnhoverGroup: () => void;
+  onHoverResponses: (responseIds: string[] | null) => void;
+  onSelectResponse: (responseId: string) => void;
+};
+
+/** One suspicion group's summary row plus, when selected, its member and
+ * link-evidence detail — its own detail query only fires while selected. */
+function SuspicionGroupListItem({
+  formId,
+  group,
+  isSelected,
+  onToggleSelect,
+  onHoverGroup,
+  onUnhoverGroup,
+  onHoverResponses,
+  onSelectResponse,
+}: SuspicionGroupListItemProps) {
+  const detailQuery = useGroupDetailQuery(
+    formId,
+    isSelected ? group.groupKey : null,
+  );
+
+  return (
+    <div
+      className={[
+        "rounded-md border transition-colors",
+        isSelected ? "border-primary bg-primary/5" : "",
+      ].join(" ")}
+    >
+      <button
+        type="button"
+        aria-pressed={isSelected}
+        onClick={onToggleSelect}
+        onMouseEnter={onHoverGroup}
+        onMouseLeave={onUnhoverGroup}
+        onFocus={onHoverGroup}
+        onBlur={onUnhoverGroup}
+        className={[
+          "w-full p-2 text-left transition-colors",
+          isSelected ? "" : "hover:bg-muted/40",
+        ].join(" ")}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium">{group.responseCount}件の回答</span>
+          <Badge variant="outline">
+            {confidenceLabel(group.technicalConfidence)}
+          </Badge>
+        </div>
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {group.reasonCodes.slice(0, 4).map((reason) => (
+            <Badge key={reason} variant="secondary" className="text-[10px]">
+              {reasonLabel(reason)}
+            </Badge>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          STRONG {group.strongLinkCount} / SUPPORT {group.supportLinkCount}
+        </p>
+      </button>
+
+      {isSelected && (
+        <div className="space-y-3 border-t p-2">
+          {detailQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              詳細を読み込み中...
+            </div>
+          ) : detailQuery.isError ? (
+            <p className="text-destructive">グループ詳細の取得に失敗しました</p>
+          ) : (
+            <>
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground">
+                  回答
+                </h4>
+                {detailQuery.data?.hasNextMembers && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    表示は先頭200回答までです。
+                  </p>
+                )}
+                <div className="mt-1 space-y-1">
+                  {(detailQuery.data?.members ?? []).map((member) => (
+                    <button
+                      key={member.responseId}
+                      type="button"
+                      className="block w-full rounded border bg-muted/20 p-1.5 text-left hover:bg-muted/40"
+                      onClick={() => onSelectResponse(member.responseId)}
+                      onMouseEnter={() => onHoverResponses([member.responseId])}
+                      onMouseLeave={() => onHoverResponses(null)}
+                      onFocus={() => onHoverResponses([member.responseId])}
+                      onBlur={() => onHoverResponses(null)}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-1">
+                        <span className="font-mono text-[10px]">
+                          {member.responseId}
+                        </span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {confidenceLabel(member.strongestStrength)}
+                        </Badge>
+                      </div>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        {formatJapanLocaleDateTime(member.submittedAt)} /{" "}
+                        {member.respondentUuid}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground">
+                  リンク根拠
+                </h4>
+                {detailQuery.data?.hasNextLinks && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    表示は先頭1000リンクまでです。
+                  </p>
+                )}
+                <div className="mt-1 space-y-1">
+                  {(detailQuery.data?.links ?? []).map((link) => (
+                    <fieldset
+                      key={`${link.responseIdA}:${link.responseIdB}`}
+                      aria-label={`${link.responseIdA} / ${link.responseIdB}`}
+                      className="rounded border p-1.5"
+                      onMouseEnter={() =>
+                        onHoverResponses([link.responseIdA, link.responseIdB])
+                      }
+                      onMouseLeave={() => onHoverResponses(null)}
+                    >
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant="outline" className="text-[10px]">
+                          {confidenceLabel(link.strength)}
+                        </Badge>
+                        {link.v6Strong && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            IPv6一致
+                          </Badge>
+                        )}
+                        {link.v4Support && (
+                          <Badge variant="secondary" className="text-[10px]">
+                            IPv4一致
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
+                        {link.responseIdA} / {link.responseIdB}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {link.reasonCodes.map((reason) => (
+                          <Badge
+                            key={reason}
+                            variant="secondary"
+                            className="text-[10px]"
+                          >
+                            {reasonLabel(reason)}
+                          </Badge>
+                        ))}
+                        {link.familyContributions.map((family) => (
+                          <Badge
+                            key={`${link.responseIdA}:${link.responseIdB}:${family.family}`}
+                            variant="outline"
+                            className="text-[10px]"
+                          >
+                            {familyLabel(family.family)}{" "}
+                            {family.score.toFixed(2)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </fieldset>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -116,18 +312,9 @@ export function ResponseSuspicionGroups({
       ),
   });
 
-  const selectedGroup = useMemo(
-    () =>
-      groupsQuery.data?.groups.find(
-        (group) => group.groupKey === selectedGroupKey,
-      ) ?? null,
-    [groupsQuery.data?.groups, selectedGroupKey],
-  );
-
-  const detailQuery = useGroupDetailQuery(formId, selectedGroupKey);
-  // Reuses the same query key as `detailQuery` when hovering the currently
-  // selected group, so hovering a group already opened costs no extra
-  // request — react-query serves it from cache.
+  // Reuses the same query key as each item's own detail query when hovering
+  // a group already opened, so react-query serves it from cache instead of
+  // firing an extra request.
   const hoveredGroupDetailQuery = useGroupDetailQuery(formId, hoveredGroupKey);
 
   useEffect(() => {
@@ -168,10 +355,6 @@ export function ResponseSuspicionGroups({
       );
     },
   });
-
-  const hoverGroup = (groupKey: string) => {
-    setHoveredGroupKey(groupKey);
-  };
 
   const unhoverGroup = () => {
     setHoveredGroupKey(null);
@@ -258,207 +441,23 @@ export function ResponseSuspicionGroups({
                   </p>
                 )}
                 {groups.map((group) => (
-                  <div
+                  <SuspicionGroupListItem
                     key={group.groupKey}
-                    className={[
-                      "rounded-md border transition-colors",
-                      selectedGroupKey === group.groupKey
-                        ? "border-primary bg-primary/5"
-                        : "",
-                    ].join(" ")}
-                  >
-                    <button
-                      type="button"
-                      aria-pressed={selectedGroupKey === group.groupKey}
-                      onClick={() =>
-                        setSelectedGroupKey(
-                          selectedGroupKey === group.groupKey
-                            ? null
-                            : group.groupKey,
-                        )
-                      }
-                      onMouseEnter={() => hoverGroup(group.groupKey)}
-                      onMouseLeave={unhoverGroup}
-                      onFocus={() => hoverGroup(group.groupKey)}
-                      onBlur={unhoverGroup}
-                      className={[
-                        "w-full p-2 text-left transition-colors",
+                    formId={formId}
+                    group={group}
+                    isSelected={selectedGroupKey === group.groupKey}
+                    onToggleSelect={() =>
+                      setSelectedGroupKey(
                         selectedGroupKey === group.groupKey
-                          ? ""
-                          : "hover:bg-muted/40",
-                      ].join(" ")}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">
-                          {group.responseCount}件の回答
-                        </span>
-                        <Badge variant="outline">
-                          {confidenceLabel(group.technicalConfidence)}
-                        </Badge>
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {group.reasonCodes.slice(0, 4).map((reason) => (
-                          <Badge
-                            key={reason}
-                            variant="secondary"
-                            className="text-[10px]"
-                          >
-                            {reasonLabel(reason)}
-                          </Badge>
-                        ))}
-                      </div>
-                      <p className="mt-1.5 text-xs text-muted-foreground">
-                        STRONG {group.strongLinkCount} / SUPPORT{" "}
-                        {group.supportLinkCount}
-                      </p>
-                    </button>
-
-                    {selectedGroupKey === group.groupKey && selectedGroup && (
-                      <div className="space-y-3 border-t p-2">
-                        {detailQuery.isLoading ? (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            詳細を読み込み中...
-                          </div>
-                        ) : detailQuery.isError ? (
-                          <p className="text-destructive">
-                            グループ詳細の取得に失敗しました
-                          </p>
-                        ) : (
-                          <>
-                            <div>
-                              <h4 className="text-xs font-semibold text-muted-foreground">
-                                回答
-                              </h4>
-                              {detailQuery.data?.hasNextMembers && (
-                                <p className="mt-1 text-[10px] text-muted-foreground">
-                                  表示は先頭200回答までです。
-                                </p>
-                              )}
-                              <div className="mt-1 space-y-1">
-                                {(detailQuery.data?.members ?? []).map(
-                                  (member) => (
-                                    <button
-                                      key={member.responseId}
-                                      type="button"
-                                      className="block w-full rounded border bg-muted/20 p-1.5 text-left hover:bg-muted/40"
-                                      onClick={() =>
-                                        onSelectResponse(member.responseId)
-                                      }
-                                      onMouseEnter={() =>
-                                        onHoverResponses([member.responseId])
-                                      }
-                                      onMouseLeave={() =>
-                                        onHoverResponses(null)
-                                      }
-                                    >
-                                      <div className="flex flex-wrap items-center justify-between gap-1">
-                                        <span className="font-mono text-[10px]">
-                                          {member.responseId}
-                                        </span>
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[10px]"
-                                        >
-                                          {confidenceLabel(
-                                            member.strongestStrength,
-                                          )}
-                                        </Badge>
-                                      </div>
-                                      <p className="mt-0.5 text-[10px] text-muted-foreground">
-                                        {formatJapanLocaleDateTime(
-                                          member.submittedAt,
-                                        )}{" "}
-                                        / {member.respondentUuid}
-                                      </p>
-                                    </button>
-                                  ),
-                                )}
-                              </div>
-                            </div>
-
-                            <div>
-                              <h4 className="text-xs font-semibold text-muted-foreground">
-                                リンク根拠
-                              </h4>
-                              {detailQuery.data?.hasNextLinks && (
-                                <p className="mt-1 text-[10px] text-muted-foreground">
-                                  表示は先頭1000リンクまでです。
-                                </p>
-                              )}
-                              <div className="mt-1 space-y-1">
-                                {(detailQuery.data?.links ?? []).map((link) => (
-                                  <fieldset
-                                    key={`${link.responseIdA}:${link.responseIdB}`}
-                                    aria-label={`${link.responseIdA} / ${link.responseIdB}`}
-                                    className="rounded border p-1.5"
-                                    onMouseEnter={() =>
-                                      onHoverResponses([
-                                        link.responseIdA,
-                                        link.responseIdB,
-                                      ])
-                                    }
-                                    onMouseLeave={() => onHoverResponses(null)}
-                                  >
-                                    <div className="flex flex-wrap items-center gap-1">
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[10px]"
-                                      >
-                                        {confidenceLabel(link.strength)}
-                                      </Badge>
-                                      {link.v6Strong && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="text-[10px]"
-                                        >
-                                          IPv6一致
-                                        </Badge>
-                                      )}
-                                      {link.v4Support && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="text-[10px]"
-                                        >
-                                          IPv4一致
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">
-                                      {link.responseIdA} / {link.responseIdB}
-                                    </p>
-                                    <div className="mt-1 flex flex-wrap gap-1">
-                                      {link.reasonCodes.map((reason) => (
-                                        <Badge
-                                          key={reason}
-                                          variant="secondary"
-                                          className="text-[10px]"
-                                        >
-                                          {reasonLabel(reason)}
-                                        </Badge>
-                                      ))}
-                                      {link.familyContributions.map(
-                                        (family) => (
-                                          <Badge
-                                            key={`${link.responseIdA}:${link.responseIdB}:${family.family}`}
-                                            variant="outline"
-                                            className="text-[10px]"
-                                          >
-                                            {familyLabel(family.family)}{" "}
-                                            {family.score.toFixed(2)}
-                                          </Badge>
-                                        ),
-                                      )}
-                                    </div>
-                                  </fieldset>
-                                ))}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                          ? null
+                          : group.groupKey,
+                      )
+                    }
+                    onHoverGroup={() => setHoveredGroupKey(group.groupKey)}
+                    onUnhoverGroup={unhoverGroup}
+                    onHoverResponses={onHoverResponses}
+                    onSelectResponse={onSelectResponse}
+                  />
                 ))}
               </div>
             )}

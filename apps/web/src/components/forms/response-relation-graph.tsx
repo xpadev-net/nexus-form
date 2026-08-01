@@ -1,4 +1,5 @@
 import type { ResponseRelationGraphResponse } from "@nexus-form/shared";
+import { isAggregateOnlyLink } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
   type Force,
@@ -387,7 +388,7 @@ export function forceMinSeparation(
  * other responses, without needing a rest distance of its own — the `link`,
  * `charge`, and `collide` forces still decide the group's internal layout.
  */
-function forceGroupCohesion(
+export function forceGroupCohesion(
   components: Map<string, string[]>,
   options: { strength: number },
 ): Force<LayoutNode, LayoutLink> {
@@ -586,6 +587,57 @@ type ForceGraphLayout = {
   dragNodeTo: (id: string, x: number, y: number) => void;
   endDrag: (id: string) => void;
 };
+
+/**
+ * Groups every id in `nodeIds` into a connected component (returned as
+ * nodeId -> arbitrary root id), following the exact same "identity-anchored"
+ * suspicion-group definition as `buildResponseSuspicionGroups` in
+ * packages/shared: a pair-edge only unions its two responses if it's HARD,
+ * or STRONG that isn't merely aggregate device-family similarity
+ * (`isAggregateOnlyLink`). SUPPORT-only edges must NOT union responses here
+ * — that function deliberately excludes them so a chain of coincidentally
+ * similar device profiles (e.g. everyone on a school computer lab's
+ * network) doesn't visually balloon into what looks like one confirmed
+ * group. Dense-cluster hub links (`link.cluster` set, `link.edge` null)
+ * always union their members — that grouping is a separate, already-vetted
+ * server-side decision, not a SUPPORT-chain artifact.
+ */
+export function computeSuspicionGroupComponents(
+  nodeIds: string[],
+  links: {
+    sourceId: string;
+    targetId: string;
+    edge: GraphEdge | null;
+    cluster: DenseCluster | null;
+  }[],
+): Map<string, string> {
+  const parent = new Map<string, string>();
+  for (const id of nodeIds) parent.set(id, id);
+  function find(id: string): string {
+    const parentId = parent.get(id) ?? id;
+    if (parentId === id) return id;
+    const root = find(parentId);
+    parent.set(id, root);
+    return root;
+  }
+  for (const link of links) {
+    if (!link.cluster) {
+      const strength = link.edge?.strength ?? "NONE";
+      const isIdentityAnchored =
+        strength === "HARD" ||
+        (strength === "STRONG" &&
+          !!link.edge &&
+          !isAggregateOnlyLink(link.edge));
+      if (!isIdentityAnchored) continue;
+    }
+    const rootA = find(link.sourceId);
+    const rootB = find(link.targetId);
+    if (rootA !== rootB) parent.set(rootA, rootB);
+  }
+  const result = new Map<string, string>();
+  for (const id of nodeIds) result.set(id, find(id));
+  return result;
+}
 
 function useForceGraphLayout(
   nodes: GraphNode[],
@@ -788,34 +840,22 @@ function useForceGraphLayout(
       if (!nextIds.has(id)) nodesById.delete(id);
     }
 
-    // A suspicion group is exactly a connected component of this evidence
-    // graph (nodes joined by any chain of edges/dense-cluster hub links,
-    // not just a direct edge). Two responses linked only indirectly — e.g.
-    // A-B by one edge, B-C by another, with no A-C edge — still belong to
-    // the same group and should end up near each other, so `componentOf`
-    // (via union-find) groups every node id into its component, and
-    // `groupMembers` collects each component's non-hidden member ids for
-    // use both as an exemption from `forceMinSeparation` (below, mirroring
-    // the dense-cluster exemption above) and as `forceGroupCohesion`'s pull
+    // Two responses in the same suspicion group but linked only indirectly
+    // through qualifying edges — e.g. A-B by one edge, B-C by another, with
+    // no A-C edge — still belong together and should end up near each
+    // other, so `groupMembers` (via `computeSuspicionGroupComponents`)
+    // collects each component's non-hidden member ids for use both as an
+    // exemption from `forceMinSeparation` (below, mirroring the
+    // dense-cluster exemption above) and as `forceGroupCohesion`'s pull
     // toward the shared centroid.
-    const componentParent = new Map<string, string>();
-    for (const node of layoutNodes) componentParent.set(node.id, node.id);
-    function findComponentRoot(id: string): string {
-      const parentId = componentParent.get(id) ?? id;
-      if (parentId === id) return id;
-      const root = findComponentRoot(parentId);
-      componentParent.set(id, root);
-      return root;
-    }
-    for (const link of layoutLinks) {
-      const rootA = findComponentRoot(link.sourceId);
-      const rootB = findComponentRoot(link.targetId);
-      if (rootA !== rootB) componentParent.set(rootA, rootB);
-    }
+    const nodeComponents = computeSuspicionGroupComponents(
+      layoutNodes.map((node) => node.id),
+      layoutLinks,
+    );
     const groupMembers = new Map<string, string[]>();
     for (const node of layoutNodes) {
       if (node.hidden) continue;
-      const root = findComponentRoot(node.id);
+      const root = nodeComponents.get(node.id) ?? node.id;
       const members = groupMembers.get(root);
       if (members) members.push(node.id);
       else groupMembers.set(root, [node.id]);
@@ -840,7 +880,7 @@ function useForceGraphLayout(
     // device/telemetry evidence) would otherwise be pulled by the sum of
     // every one of those edges' strength, clumping loosely-related nodes
     // together far harder than a single SUPPORT edge ever should. Dividing
-    // each SUPPORT edge's strength by the lower of its two endpoints'
+    // each SUPPORT edge's strength by the higher of its two endpoints'
     // SUPPORT-degree keeps the *total* pull on a node from any number of
     // SUPPORT edges roughly bounded, matching how STRONG/HARD edges (rare
     // enough in practice not to need this) already behave.
@@ -875,12 +915,18 @@ function useForceGraphLayout(
             const strength = link.edge?.strength ?? "NONE";
             const base = edgeLinkStrength(strength);
             if (strength !== "SUPPORT") return base;
+            // The *higher* of the two endpoints' SUPPORT-degree, not the
+            // lower: a hub node connected to 10 leaves each has its own
+            // degree of 10 while every leaf's degree is 1, so dividing by
+            // the min (matching d3-force's own default bias) would leave
+            // every one of the hub's 10 edges at full strength — its total
+            // pull would stay exactly as unbounded as before. Dividing by
+            // the max instead caps the hub's summed pull at roughly one
+            // edge's worth, regardless of how many SUPPORT edges it has.
             const degree = Math.max(
               1,
-              Math.min(
-                supportDegree.get(link.sourceId) ?? 1,
-                supportDegree.get(link.targetId) ?? 1,
-              ),
+              supportDegree.get(link.sourceId) ?? 1,
+              supportDegree.get(link.targetId) ?? 1,
             );
             return base / degree;
           }),
@@ -2098,16 +2144,33 @@ function cascadeWindowPosition(
   );
 }
 
-export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
-  const [openWindows, setOpenWindows] = useState<OpenResponseWindow[]>([]);
-  const [openEdgeWindows, setOpenEdgeWindows] = useState<OpenEdgeWindow[]>([]);
-  const zIndexCounterRef = useRef(1);
-  const [selectedCluster, setSelectedCluster] = useState<DenseCluster | null>(
-    null,
-  );
-  const [showSuspicionGroups, setShowSuspicionGroups] = useState(false);
+type SuspicionGroupsOverlay = {
+  isOpen: boolean;
+  toggle: () => void;
+  close: () => void;
+  highlightedResponseIds: Set<string> | null;
+  handleHoverResponses: (responseIds: string[] | null) => void;
+};
+
+/**
+ * Owns the suspicion-groups overlay's open/closed state and the
+ * hover-driven highlight it feeds into the graph. Bundling `close` with the
+ * highlight reset makes "closing the overlay always clears any highlight
+ * it set" a property of the hook itself, rather than something every call
+ * site has to remember to do — closing while a group/response is still
+ * hovered must not leave the graph permanently dimmed, since there's no
+ * more overlay left to un-hover it from.
+ */
+function useSuspicionGroupsOverlay(): SuspicionGroupsOverlay {
+  const [isOpen, setIsOpen] = useState(false);
   const [highlightedResponseIds, setHighlightedResponseIds] =
     useState<Set<string> | null>(null);
+
+  const toggle = useCallback(() => setIsOpen((current) => !current), []);
+  const close = useCallback(() => {
+    setIsOpen(false);
+    setHighlightedResponseIds(null);
+  }, []);
   // Stable identity so it doesn't re-trigger the hover effect inside
   // `ResponseSuspicionGroups` on every render (which would otherwise call
   // back into `setHighlightedResponseIds` with a fresh `Set` each time and
@@ -2115,6 +2178,24 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   const handleHoverResponses = useCallback((responseIds: string[] | null) => {
     setHighlightedResponseIds(responseIds ? new Set(responseIds) : null);
   }, []);
+
+  return {
+    isOpen,
+    toggle,
+    close,
+    highlightedResponseIds,
+    handleHoverResponses,
+  };
+}
+
+export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
+  const [openWindows, setOpenWindows] = useState<OpenResponseWindow[]>([]);
+  const [openEdgeWindows, setOpenEdgeWindows] = useState<OpenEdgeWindow[]>([]);
+  const zIndexCounterRef = useRef(1);
+  const [selectedCluster, setSelectedCluster] = useState<DenseCluster | null>(
+    null,
+  );
+  const suspicionGroupsOverlay = useSuspicionGroupsOverlay();
   const graphQuery = useQuery({
     queryKey: ["responseRelationGraph", formId],
     queryFn: (): Promise<ResponseRelationGraphResponse> =>
@@ -2337,11 +2418,11 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
           </span>
           <Button
             type="button"
-            variant={showSuspicionGroups ? "default" : "outline"}
+            variant={suspicionGroupsOverlay.isOpen ? "default" : "outline"}
             size="sm"
             className="h-7"
-            aria-pressed={showSuspicionGroups}
-            onClick={() => setShowSuspicionGroups((current) => !current)}
+            aria-pressed={suspicionGroupsOverlay.isOpen}
+            onClick={suspicionGroupsOverlay.toggle}
           >
             <Link2 className="mr-1 h-3.5 w-3.5" />
             疑義グループ
@@ -2376,13 +2457,15 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
             onSelectEdge={openEdgeWindow}
             onSelectResponse={openResponseWindow}
             onSelectGroup={setSelectedCluster}
-            highlightedResponseIds={highlightedResponseIds}
+            highlightedResponseIds={
+              suspicionGroupsOverlay.highlightedResponseIds
+            }
           />
-          {showSuspicionGroups && (
+          {suspicionGroupsOverlay.isOpen && (
             <ResponseSuspicionGroups
               formId={formId}
-              onClose={() => setShowSuspicionGroups(false)}
-              onHoverResponses={handleHoverResponses}
+              onClose={suspicionGroupsOverlay.close}
+              onHoverResponses={suspicionGroupsOverlay.handleHoverResponses}
               onSelectResponse={openResponseWindow}
             />
           )}
