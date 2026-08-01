@@ -12,12 +12,12 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { AlertTriangle, Loader2, Network, X } from "lucide-react";
+import { AlertTriangle, Link2, Loader2, Network, X } from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { client, rpc } from "@/lib/api";
 import { formatJapanLocaleDateTime } from "@/lib/formatters";
 import { ResponseDetailView } from "./response-detail-view";
+import { ResponseSuspicionGroups } from "./response-suspicion-groups";
 
 type ResponseRelationGraphProps = {
   formId: string;
@@ -97,6 +98,7 @@ const cameraMaxScale = 4;
 const nodeDragThreshold = 4;
 const nonRelationMinDistance = 90;
 const nonRelationStrength = 0.6;
+const groupCohesionStrength = 0.025;
 const heavyGraphElementCount = 150;
 const graphFocusMargin = 56;
 
@@ -370,6 +372,53 @@ export function forceMinSeparation(
   }
   force.initialize = (initializedNodes: LayoutNode[]) => {
     nodes = initializedNodes;
+  };
+  return force;
+}
+
+/**
+ * A d3-force `Force` that gently pulls every node in `components` toward
+ * that component's current centroid. `components` maps an arbitrary
+ * representative id to the (non-hidden) node ids of one connected component
+ * of the evidence graph — i.e. one suspicion group — for every component
+ * with 2+ members. Unlike the `link` force (which only pulls directly
+ * linked pairs together), this keeps a whole group visually near each
+ * other even when two of its members are related only through a chain of
+ * other responses, without needing a rest distance of its own — the `link`,
+ * `charge`, and `collide` forces still decide the group's internal layout.
+ */
+function forceGroupCohesion(
+  components: Map<string, string[]>,
+  options: { strength: number },
+): Force<LayoutNode, LayoutLink> {
+  let nodesById = new Map<string, LayoutNode>();
+  function force(alpha: number) {
+    for (const members of components.values()) {
+      let cx = 0;
+      let cy = 0;
+      let count = 0;
+      for (const id of members) {
+        const node = nodesById.get(id);
+        if (!node || typeof node.x !== "number" || typeof node.y !== "number")
+          continue;
+        cx += node.x;
+        cy += node.y;
+        count += 1;
+      }
+      if (count < 2) continue;
+      cx /= count;
+      cy /= count;
+      for (const id of members) {
+        const node = nodesById.get(id);
+        if (!node || typeof node.x !== "number" || typeof node.y !== "number")
+          continue;
+        node.vx = (node.vx ?? 0) + (cx - node.x) * options.strength * alpha;
+        node.vy = (node.vy ?? 0) + (cy - node.y) * options.strength * alpha;
+      }
+    }
+  }
+  force.initialize = (initializedNodes: LayoutNode[]) => {
+    nodesById = new Map(initializedNodes.map((node) => [node.id, node]));
   };
   return force;
 }
@@ -739,6 +788,75 @@ function useForceGraphLayout(
       if (!nextIds.has(id)) nodesById.delete(id);
     }
 
+    // A suspicion group is exactly a connected component of this evidence
+    // graph (nodes joined by any chain of edges/dense-cluster hub links,
+    // not just a direct edge). Two responses linked only indirectly — e.g.
+    // A-B by one edge, B-C by another, with no A-C edge — still belong to
+    // the same group and should end up near each other, so `componentOf`
+    // (via union-find) groups every node id into its component, and
+    // `groupMembers` collects each component's non-hidden member ids for
+    // use both as an exemption from `forceMinSeparation` (below, mirroring
+    // the dense-cluster exemption above) and as `forceGroupCohesion`'s pull
+    // toward the shared centroid.
+    const componentParent = new Map<string, string>();
+    for (const node of layoutNodes) componentParent.set(node.id, node.id);
+    function findComponentRoot(id: string): string {
+      const parentId = componentParent.get(id) ?? id;
+      if (parentId === id) return id;
+      const root = findComponentRoot(parentId);
+      componentParent.set(id, root);
+      return root;
+    }
+    for (const link of layoutLinks) {
+      const rootA = findComponentRoot(link.sourceId);
+      const rootB = findComponentRoot(link.targetId);
+      if (rootA !== rootB) componentParent.set(rootA, rootB);
+    }
+    const groupMembers = new Map<string, string[]>();
+    for (const node of layoutNodes) {
+      if (node.hidden) continue;
+      const root = findComponentRoot(node.id);
+      const members = groupMembers.get(root);
+      if (members) members.push(node.id);
+      else groupMembers.set(root, [node.id]);
+    }
+    for (const [root, members] of groupMembers) {
+      if (members.length < 2) {
+        groupMembers.delete(root);
+        continue;
+      }
+      for (let i = 0; i < members.length; i++) {
+        const memberA = members[i];
+        if (!memberA) continue;
+        for (let j = i + 1; j < members.length; j++) {
+          const memberB = members[j];
+          if (!memberB) continue;
+          addLinkedPair(linkedNeighbors, memberA, memberB);
+        }
+      }
+    }
+
+    // A node connected by many SUPPORT edges (5, 10+ — common for shared
+    // device/telemetry evidence) would otherwise be pulled by the sum of
+    // every one of those edges' strength, clumping loosely-related nodes
+    // together far harder than a single SUPPORT edge ever should. Dividing
+    // each SUPPORT edge's strength by the lower of its two endpoints'
+    // SUPPORT-degree keeps the *total* pull on a node from any number of
+    // SUPPORT edges roughly bounded, matching how STRONG/HARD edges (rare
+    // enough in practice not to need this) already behave.
+    const supportDegree = new Map<string, number>();
+    for (const link of layoutLinks) {
+      if (link.cluster || link.edge?.strength !== "SUPPORT") continue;
+      supportDegree.set(
+        link.sourceId,
+        (supportDegree.get(link.sourceId) ?? 0) + 1,
+      );
+      supportDegree.set(
+        link.targetId,
+        (supportDegree.get(link.targetId) ?? 0) + 1,
+      );
+    }
+
     let simulation = simulationRef.current;
     if (!simulation) {
       simulation = forceSimulation<LayoutNode, LayoutLink>();
@@ -752,11 +870,20 @@ function useForceGraphLayout(
         forceLink<LayoutNode, LayoutLink>(layoutLinks)
           .id((node) => node.id)
           .distance((link) => (link.cluster ? 44 : 96))
-          .strength((link) =>
-            link.cluster
-              ? 0.7
-              : edgeLinkStrength(link.edge?.strength ?? "NONE"),
-          ),
+          .strength((link) => {
+            if (link.cluster) return 0.7;
+            const strength = link.edge?.strength ?? "NONE";
+            const base = edgeLinkStrength(strength);
+            if (strength !== "SUPPORT") return base;
+            const degree = Math.max(
+              1,
+              Math.min(
+                supportDegree.get(link.sourceId) ?? 1,
+                supportDegree.get(link.targetId) ?? 1,
+              ),
+            );
+            return base / degree;
+          }),
       )
       .force(
         "charge",
@@ -776,6 +903,10 @@ function useForceGraphLayout(
           minDistance: nonRelationMinDistance,
           strength: nonRelationStrength,
         }),
+      )
+      .force(
+        "groupCohesion",
+        forceGroupCohesion(groupMembers, { strength: groupCohesionStrength }),
       )
       .force(
         "edgeCrossing",
@@ -940,6 +1071,12 @@ type ResponseRelationGraphCanvasProps = {
    * surface the other same-content responses that would otherwise be
    * unreachable from the graph. */
   onSelectGroup: (group: DenseCluster) => void;
+  /** When set (e.g. by hovering a group or response in the suspicion-groups
+   * overlay), overrides the graph's own hover-derived highlight: every
+   * response id in this set is drawn at full opacity, every other node/edge
+   * dimmed. `null`/omitted falls back to highlighting whatever's currently
+   * hovered inside the graph itself. */
+  highlightedResponseIds?: Set<string> | null;
 };
 
 type PanSession = {
@@ -973,6 +1110,7 @@ export function ResponseRelationGraphCanvas({
   onSelectEdge,
   onSelectResponse,
   onSelectGroup,
+  highlightedResponseIds,
 }: ResponseRelationGraphCanvasProps) {
   const {
     nodes: layoutNodes,
@@ -982,12 +1120,76 @@ export function ResponseRelationGraphCanvas({
     endDrag,
   } = useForceGraphLayout(nodes, edges, denseClusters);
 
+  // Drawn (and hit-tested, since SVG resolves overlapping pointer targets
+  // by paint order) weakest-first so HARD edges always render on top of
+  // STRONG, which renders on top of SUPPORT — the strongest evidence for a
+  // given pair should never be visually hidden or unclickable underneath a
+  // weaker one.
+  const sortedLayoutLinks = useMemo(
+    () =>
+      [...layoutLinks].sort(
+        (a, b) => strengthRank(a.edge.strength) - strengthRank(b.edge.strength),
+      ),
+    [layoutLinks],
+  );
+
+  // Maps every response id to the response ids it shares a direct edge
+  // with, used to expand a single hovered node into "itself + its
+  // neighbors" for the hover highlight below.
+  const nodeAdjacency = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const link of layoutLinks) {
+      const sourceId = link.source.id;
+      const targetId = link.target.id;
+      let sourceNeighbors = map.get(sourceId);
+      if (!sourceNeighbors) {
+        sourceNeighbors = new Set();
+        map.set(sourceId, sourceNeighbors);
+      }
+      sourceNeighbors.add(targetId);
+      let targetNeighbors = map.get(targetId);
+      if (!targetNeighbors) {
+        targetNeighbors = new Set();
+        map.set(targetId, targetNeighbors);
+      }
+      targetNeighbors.add(sourceId);
+    }
+    return map;
+  }, [layoutLinks]);
+
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [camera, setCamera] = useState({ x: 0, y: 0, k: 1 });
   const [panSession, setPanSession] = useState<PanSession | null>(null);
   const [nodeDrag, setNodeDrag] = useState<NodeDragSession | null>(null);
   const [hoveredEdgeKey, setHoveredEdgeKey] = useState<string | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
+
+  // What to highlight at full opacity while dimming everything else: an
+  // externally supplied set (hovering the suspicion-groups overlay) takes
+  // priority; otherwise fall back to whatever's hovered inside the graph
+  // itself (a node highlights itself + neighbors, an edge its two
+  // endpoints). `null` means "nothing dimmed" (the graph's resting state).
+  const highlightedIds = useMemo(() => {
+    if (highlightedResponseIds) return highlightedResponseIds;
+    if (hoveredNodeId) {
+      return new Set([
+        hoveredNodeId,
+        ...(nodeAdjacency.get(hoveredNodeId) ?? []),
+      ]);
+    }
+    if (hoveredEdgeKey) {
+      const link = layoutLinks.find((l) => edgeKey(l.edge) === hoveredEdgeKey);
+      if (link) return new Set([link.source.id, link.target.id]);
+    }
+    return null;
+  }, [
+    highlightedResponseIds,
+    hoveredNodeId,
+    hoveredEdgeKey,
+    nodeAdjacency,
+    layoutLinks,
+  ]);
 
   const clientToGraphPoint = (clientX: number, clientY: number): GraphPoint => {
     const bounds = svgRef.current?.getBoundingClientRect();
@@ -1037,21 +1239,32 @@ export function ResponseRelationGraphCanvas({
     return { ...camera, x: nextX, y: nextY };
   };
 
-  const handleWheel = (event: ReactWheelEvent<SVGSVGElement>): void => {
-    event.preventDefault();
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const px = event.clientX - bounds.left;
-    const py = event.clientY - bounds.top;
-    const factor = Math.exp(-event.deltaY * 0.001);
-    setCamera((current) => {
-      const nextK = clamp(current.k * factor, cameraMinScale, cameraMaxScale);
-      return {
-        k: nextK,
-        x: px - (px - current.x) * (nextK / current.k),
-        y: py - (py - current.y) * (nextK / current.k),
-      };
-    });
-  };
+  // React registers its root "wheel" listener as passive, so calling
+  // `event.preventDefault()` from a JSX `onWheel` handler is silently
+  // ignored (with a console warning) and the page scrolls anyway. Zooming
+  // the graph therefore needs a real native listener with `passive: false`,
+  // attached directly to the SVG element.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheelNative = (event: WheelEvent): void => {
+      event.preventDefault();
+      const bounds = svg.getBoundingClientRect();
+      const px = event.clientX - bounds.left;
+      const py = event.clientY - bounds.top;
+      const factor = Math.exp(-event.deltaY * 0.001);
+      setCamera((current) => {
+        const nextK = clamp(current.k * factor, cameraMinScale, cameraMaxScale);
+        return {
+          k: nextK,
+          x: px - (px - current.x) * (nextK / current.k),
+          y: py - (py - current.y) * (nextK / current.k),
+        };
+      });
+    };
+    svg.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheelNative);
+  }, []);
 
   const panByKeyboard = (event: KeyboardEvent<HTMLFieldSetElement>): void => {
     const deltaByKey: Record<string, { x: number; y: number } | undefined> = {
@@ -1185,7 +1398,6 @@ export function ResponseRelationGraphCanvas({
           "h-[calc(100vh-260px)] min-h-[480px] w-full touch-none select-none",
           panSession ? "cursor-grabbing" : "cursor-grab",
         ].join(" ")}
-        onWheel={handleWheel}
         onPointerDown={startPanning}
         onPointerMove={panCanvas}
         onPointerUp={stopPanning}
@@ -1199,13 +1411,16 @@ export function ResponseRelationGraphCanvas({
           className="fill-muted/20"
         />
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.k})`}>
-          {layoutLinks.map((link) => {
+          {sortedLayoutLinks.map((link) => {
             const edge = link.edge;
             const collapsedEdges = link.collapsedEdges;
             const source = link.source;
             const target = link.target;
             const title = edgeTitle(edge);
             const isHovered = hoveredEdgeKey === edgeKey(edge);
+            const isEdgeHighlighted =
+              !highlightedIds ||
+              (highlightedIds.has(source.id) && highlightedIds.has(target.id));
             return (
               <g key={edgeKey(edge)}>
                 <line
@@ -1215,7 +1430,11 @@ export function ResponseRelationGraphCanvas({
                   y2={target.y}
                   className={[
                     edgeStrokeClass(edge.strength),
-                    isHovered ? "opacity-100" : "opacity-60",
+                    isEdgeHighlighted
+                      ? isHovered
+                        ? "opacity-100"
+                        : "opacity-60"
+                      : "opacity-10",
                   ].join(" ")}
                   strokeWidth={edgeWidth(edge.strength)}
                 />
@@ -1329,6 +1548,7 @@ export function ResponseRelationGraphCanvas({
                     layoutNode.y,
                     nextCamera,
                   );
+                  setHoveredNodeId(node.responseId);
                   setTooltip({
                     kind: "node",
                     node,
@@ -1337,16 +1557,20 @@ export function ResponseRelationGraphCanvas({
                     y: screen.y,
                   });
                 }}
-                onBlur={() => setTooltip(null)}
-                onMouseEnter={(event) =>
+                onBlur={() => {
+                  setHoveredNodeId(null);
+                  setTooltip(null);
+                }}
+                onMouseEnter={(event) => {
+                  setHoveredNodeId(node.responseId);
                   setTooltip({
                     kind: "node",
                     node,
                     memberCount,
                     x: event.clientX,
                     y: event.clientY,
-                  })
-                }
+                  });
+                }}
                 onMouseMove={(event) =>
                   setTooltip({
                     kind: "node",
@@ -1356,7 +1580,10 @@ export function ResponseRelationGraphCanvas({
                     y: event.clientY,
                   })
                 }
-                onMouseLeave={() => setTooltip(null)}
+                onMouseLeave={() => {
+                  setHoveredNodeId(null);
+                  setTooltip(null);
+                }}
               >
                 <circle
                   cx={layoutNode.x}
@@ -1365,6 +1592,9 @@ export function ResponseRelationGraphCanvas({
                   className={[
                     nodeFillClass(node.strongestStrength, isOpen),
                     "cursor-pointer stroke-background stroke-2",
+                    !highlightedIds || highlightedIds.has(node.responseId)
+                      ? "opacity-100"
+                      : "opacity-25",
                   ].join(" ")}
                 />
                 <text
@@ -1875,6 +2105,16 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
   const [selectedCluster, setSelectedCluster] = useState<DenseCluster | null>(
     null,
   );
+  const [showSuspicionGroups, setShowSuspicionGroups] = useState(false);
+  const [highlightedResponseIds, setHighlightedResponseIds] =
+    useState<Set<string> | null>(null);
+  // Stable identity so it doesn't re-trigger the hover effect inside
+  // `ResponseSuspicionGroups` on every render (which would otherwise call
+  // back into `setHighlightedResponseIds` with a fresh `Set` each time and
+  // loop).
+  const handleHoverResponses = useCallback((responseIds: string[] | null) => {
+    setHighlightedResponseIds(responseIds ? new Set(responseIds) : null);
+  }, []);
   const graphQuery = useQuery({
     queryKey: ["responseRelationGraph", formId],
     queryFn: (): Promise<ResponseRelationGraphResponse> =>
@@ -2082,7 +2322,7 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
             / 母数 {graph.run.populationSize}件
           </span>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="inline-flex items-center gap-1">
             <span className="h-0.5 w-6 bg-sky-500" />
             SUPPORT
@@ -2095,6 +2335,17 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
             <span className="h-0.5 w-6 bg-rose-600" />
             HARD
           </span>
+          <Button
+            type="button"
+            variant={showSuspicionGroups ? "default" : "outline"}
+            size="sm"
+            className="h-7"
+            aria-pressed={showSuspicionGroups}
+            onClick={() => setShowSuspicionGroups((current) => !current)}
+          >
+            <Link2 className="mr-1 h-3.5 w-3.5" />
+            疑義グループ
+          </Button>
         </div>
       </div>
 
@@ -2116,15 +2367,26 @@ export function ResponseRelationGraph({ formId }: ResponseRelationGraphProps) {
             : "",
         ].join(" ")}
       >
-        <ResponseRelationGraphCanvas
-          nodes={graph.nodes}
-          edges={graph.edges}
-          denseClusters={graph.denseClusters}
-          openResponseIds={openResponseIds}
-          onSelectEdge={openEdgeWindow}
-          onSelectResponse={openResponseWindow}
-          onSelectGroup={setSelectedCluster}
-        />
+        <div className="relative">
+          <ResponseRelationGraphCanvas
+            nodes={graph.nodes}
+            edges={graph.edges}
+            denseClusters={graph.denseClusters}
+            openResponseIds={openResponseIds}
+            onSelectEdge={openEdgeWindow}
+            onSelectResponse={openResponseWindow}
+            onSelectGroup={setSelectedCluster}
+            highlightedResponseIds={highlightedResponseIds}
+          />
+          {showSuspicionGroups && (
+            <ResponseSuspicionGroups
+              formId={formId}
+              onClose={() => setShowSuspicionGroups(false)}
+              onHoverResponses={handleHoverResponses}
+              onSelectResponse={openResponseWindow}
+            />
+          )}
+        </div>
         <ResponseRelationGraphSidebar
           graph={graph}
           selectedCluster={selectedCluster}

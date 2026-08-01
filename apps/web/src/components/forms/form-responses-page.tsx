@@ -10,7 +10,6 @@ import {
 } from "@tanstack/react-query";
 import {
   BarChart3,
-  Link2,
   List,
   Loader2,
   Network,
@@ -28,7 +27,6 @@ import {
   type ValidationFilterStatus,
 } from "@/components/forms/response-filter";
 import { ResponseRelationGraph } from "@/components/forms/response-relation-graph";
-import { ResponseSuspicionGroups } from "@/components/forms/response-suspicion-groups";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,7 +44,7 @@ import { useValidationSSE } from "@/hooks/forms/use-validation-sse";
 import { client, rpc } from "@/lib/api";
 import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
-type ViewMode = "list" | "graph" | "analytics" | "groups";
+type ViewMode = "list" | "graph" | "analytics";
 
 export type { ValidationFilterStatus };
 
@@ -533,22 +531,6 @@ export function FormResponsesContent({
               <BarChart3 className="h-3.5 w-3.5" />
               分析
             </button>
-            <button
-              type="button"
-              onClick={() =>
-                dispatch({ type: "set-view-mode", viewMode: "groups" })
-              }
-              aria-pressed={state.viewMode === "groups"}
-              className={[
-                "flex items-center gap-1 px-3 py-1.5 text-sm transition-colors",
-                state.viewMode === "groups"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted",
-              ].join(" ")}
-            >
-              <Link2 className="h-3.5 w-3.5" />
-              疑義グループ
-            </button>
           </fieldset>
         </div>
       </div>
@@ -557,12 +539,6 @@ export function FormResponsesContent({
       {state.viewMode === "analytics" && (
         <section className="rounded-lg border bg-card p-6 shadow-sm">
           <FormResponseAnalytics formId={formId} />
-        </section>
-      )}
-
-      {state.viewMode === "groups" && (
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <ResponseSuspicionGroups formId={formId} />
         </section>
       )}
 
