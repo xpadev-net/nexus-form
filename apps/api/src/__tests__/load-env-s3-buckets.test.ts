@@ -66,37 +66,14 @@ function sanitizeCode(src: string): string {
   return result;
 }
 
-function stripFunctionDeclarations(src: string): string {
-  let result = "";
-  let i = 0;
-  const len = src.length;
-
-  while (i < len) {
-    const match = src
-      .slice(i)
-      .match(/^function(?:\s*\*|\s+[a-zA-Z0-9_$]+|\s*\()/);
-    if (match) {
-      while (i < len && src[i] !== "{") i++;
-      if (i < len && src[i] === "{") {
-        let depth = 1;
-        i++;
-        while (i < len && depth > 0) {
-          if (src[i] === "{") depth++;
-          else if (src[i] === "}") depth--;
-          i++;
-        }
-      }
-      continue;
-    }
-    result += src[i];
-    i++;
-  }
-  return result;
-}
-
 function getTopLevelCallExpressions(source: string): string[] {
-  const sanitized = sanitizeCode(source);
-  const topLevel = stripFunctionDeclarations(sanitized);
+  const clean = sanitizeCode(source);
+  let braceDepth = 0;
+  let parenDepth = 0;
+  let currentToken = "";
+  let lastWord = "";
+  const calls: string[] = [];
+
   const keywords = new Set([
     "if",
     "for",
@@ -106,14 +83,74 @@ function getTopLevelCallExpressions(source: string): string[] {
     "return",
     "throw",
     "function",
+    "const",
+    "let",
+    "var",
+    "export",
+    "import",
+    "type",
+    "interface",
   ]);
-  const matches = Array.from(topLevel.matchAll(/\b([a-zA-Z0-9_$]+)\s*\(/g)).map(
-    (m) => m[1],
-  );
-  return matches.filter(
-    (name: string | undefined): name is string =>
-      typeof name === "string" && !keywords.has(name) && name !== "resolve",
-  );
+
+  let i = 0;
+  while (i < clean.length) {
+    const ch = clean[i];
+    if (!ch) {
+      i++;
+      continue;
+    }
+
+    if (ch === "{") {
+      braceDepth++;
+      currentToken = "";
+      i++;
+      continue;
+    }
+    if (ch === "}") {
+      if (braceDepth > 0) braceDepth--;
+      currentToken = "";
+      i++;
+      continue;
+    }
+
+    if (braceDepth === 0) {
+      if (ch === "(") {
+        const name = currentToken.trim();
+        if (
+          name &&
+          /^[a-zA-Z0-9_$]+$/.test(name) &&
+          !keywords.has(name) &&
+          lastWord !== "function" &&
+          lastWord !== "=>" &&
+          name !== "resolve"
+        ) {
+          calls.push(name);
+        }
+        parenDepth++;
+        currentToken = "";
+      } else if (ch === ")") {
+        if (parenDepth > 0) parenDepth--;
+        currentToken = "";
+      } else if (/\s/.test(ch)) {
+        if (currentToken.trim()) {
+          lastWord = currentToken.trim();
+        }
+        currentToken = "";
+      } else if (/[a-zA-Z0-9_$]/.test(ch)) {
+        currentToken += ch;
+      } else {
+        if (ch === "=" && clean[i + 1] === ">") {
+          lastWord = "=>";
+          i += 2;
+          continue;
+        }
+        currentToken = "";
+      }
+    }
+    i++;
+  }
+
+  return calls;
 }
 
 describe("load-env S3 bucket validation", () => {
