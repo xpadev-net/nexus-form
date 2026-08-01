@@ -234,7 +234,16 @@ vi.mock("@/components/editor/plate-editor", () => ({
 }));
 
 vi.mock("@/components/forms/form-responses-page", () => ({
-  FormResponsesContent: () => <div data-testid="responses-content" />,
+  FormResponsesContent: ({
+    canManageResponses,
+  }: {
+    canManageResponses: boolean;
+  }) => (
+    <div
+      data-can-manage-responses={canManageResponses ? "true" : "false"}
+      data-testid="responses-content"
+    />
+  ),
 }));
 
 vi.mock("@/components/forms/form-archive-manager", () => ({
@@ -661,11 +670,34 @@ describe("FormEditorPage tab synchronization", () => {
     expect(settingsButton?.disabled).toBe(true);
     expect(validationButton?.disabled).toBe(true);
     expect(sharingButton?.disabled).toBe(true);
-    expect(responsesButton?.disabled).toBe(true);
+    expect(responsesButton?.disabled).toBe(false);
     expect(autosaveOptionsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ enabled: false }),
     );
     expect(container.textContent).not.toContain("フォーム管理");
+
+    act(() => root.unmount());
+  });
+
+  it("allows viewer share links to view responses read-only", () => {
+    searchShareToken = "shared-viewer-token";
+    searchTab = "responses";
+    permissionQueryState = {
+      data: { role: "VIEWER" },
+      isError: false,
+      isLoading: false,
+    };
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(
+      container.querySelector("[data-active-tab='responses']"),
+    ).not.toBeNull();
+    expect(
+      container
+        .querySelector("[data-testid='responses-content']")
+        ?.getAttribute("data-can-manage-responses"),
+    ).toBe("false");
 
     act(() => root.unmount());
   });
@@ -710,7 +742,6 @@ describe("FormEditorPage tab synchronization", () => {
     "settings",
     "validation",
     "sharing",
-    "responses",
   ])("redirects viewer share links away from %s tab URLs", (blockedTab) => {
     searchShareToken = "shared-viewer-token";
     searchTab = blockedTab;

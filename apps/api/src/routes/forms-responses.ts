@@ -2225,7 +2225,7 @@ async function getFilteredAndSortedResponses(options: {
 }
 
 export const formsResponsesRouter = createHonoApp()
-  .use("/:id/responses*", withDualFormAuth("EDITOR"))
+  .use("/:id/responses*", withDualFormAuth("VIEWER"))
   .get(
     "/:id/responses",
     zValidator("query", listResponsesQuerySchema),
@@ -3037,6 +3037,7 @@ export const formsResponsesRouter = createHonoApp()
   })
   .post(
     "/:id/responses/link-analysis/recalculate",
+    withDualFormAuth("EDITOR"),
     createRateLimit({ windowMs: 60_000, maxRequests: 10 }),
     async (c) => {
       const formId = c.req.param("id");

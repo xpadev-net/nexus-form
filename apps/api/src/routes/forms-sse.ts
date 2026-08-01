@@ -20,6 +20,7 @@ import Redis from "ioredis";
 import { checkFormPermissionLevel, withDualFormAuth } from "../lib/dual-auth";
 import { createHonoApp, type Env } from "../lib/hono";
 import { logError, logWarn } from "../lib/logger";
+import type { FormPermissionRole } from "../lib/permissions/constants";
 import { getRedisConnection } from "../lib/redis";
 import { captureError } from "../lib/sentry";
 
@@ -681,6 +682,7 @@ async function createSSEStream(
   c: Context<Env>,
   channel: string,
   formId: string,
+  requiredRole: FormPermissionRole,
   options: {
     channelRegistry: SseChannelRegistry;
     connectionLimiter: SseConnectionLimiter;
@@ -788,7 +790,7 @@ async function createSSEStream(
           },
         );
         try {
-          await checkFormPermissionLevel(auth, formId, "EDITOR");
+          await checkFormPermissionLevel(auth, formId, requiredRole);
           activation.resolve();
         } catch (error) {
           // Rejecting the activation gate closes the registry entry; this
@@ -842,10 +844,10 @@ export function createFormsSSERouter(
   return (
     createHonoApp()
       // バリデーション SSE: form:validation:{formId}
-      .get("/:id/responses/events", withDualFormAuth("EDITOR"), async (c) => {
+      .get("/:id/responses/events", withDualFormAuth("VIEWER"), async (c) => {
         const formId = c.req.param("id");
         const channel = getValidationChannel(formId);
-        return createSSEStream(c, channel, formId, {
+        return createSSEStream(c, channel, formId, "VIEWER", {
           channelRegistry,
           connectionLimiter,
         });
@@ -854,7 +856,7 @@ export function createFormsSSERouter(
       .get("/:id/editor/events", withDualFormAuth("EDITOR"), async (c) => {
         const formId = c.req.param("id");
         const channel = getEditorChannel(formId);
-        return createSSEStream(c, channel, formId, {
+        return createSSEStream(c, channel, formId, "EDITOR", {
           channelRegistry,
           connectionLimiter,
         });

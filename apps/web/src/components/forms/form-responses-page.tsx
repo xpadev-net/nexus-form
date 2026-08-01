@@ -211,9 +211,11 @@ function formResponsesReducer(
 export function FormResponsesContent({
   formId,
   shareToken,
+  canManageResponses,
 }: {
   formId: string;
   shareToken?: string;
+  canManageResponses: boolean;
 }) {
   useValidationSSE(formId, shareToken);
   const queryClient = useQueryClient();
@@ -544,7 +546,10 @@ export function FormResponsesContent({
 
       {state.viewMode === "graph" && (
         <section className="rounded-lg border bg-card p-3 shadow-sm">
-          <ResponseRelationGraph formId={formId} />
+          <ResponseRelationGraph
+            formId={formId}
+            canManageResponses={canManageResponses}
+          />
         </section>
       )}
 
@@ -584,46 +589,48 @@ export function FormResponsesContent({
                 onResetFilters={() => dispatch({ type: "reset-filters" })}
               />
             </div>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
-              <p className="text-sm text-muted-foreground">
-                {state.selectedResponseIds.length > 0
-                  ? `${state.selectedResponseIds.length}件を選択中`
-                  : "回答を選択して再検証できます"}
-              </p>
-              <div className="flex items-center gap-2">
-                {state.selectedResponseIds.length > 0 && (
+            {canManageResponses && (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+                <p className="text-sm text-muted-foreground">
+                  {state.selectedResponseIds.length > 0
+                    ? `${state.selectedResponseIds.length}件を選択中`
+                    : "回答を選択して再検証できます"}
+                </p>
+                <div className="flex items-center gap-2">
+                  {state.selectedResponseIds.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        dispatch({ type: "clear-response-selection" })
+                      }
+                      disabled={isActionPending}
+                    >
+                      選択解除
+                    </Button>
+                  )}
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
-                    onClick={() =>
-                      dispatch({ type: "clear-response-selection" })
+                    onClick={handleRevalidateSelectedResponses}
+                    disabled={
+                      state.selectedResponseIds.length === 0 ||
+                      isStalePageData ||
+                      isActionPending
                     }
-                    disabled={isActionPending}
                   >
-                    選択解除
+                    {revalidateResponsesMutation.isPending ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    選択を再検証
                   </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRevalidateSelectedResponses}
-                  disabled={
-                    state.selectedResponseIds.length === 0 ||
-                    isStalePageData ||
-                    isActionPending
-                  }
-                >
-                  {revalidateResponsesMutation.isPending ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  選択を再検証
-                </Button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* 読み込み中 */}
             {isSearching && (
@@ -701,19 +708,21 @@ export function FormResponsesContent({
                               : "",
                           ].join(" ")}
                         >
-                          <input
-                            type="checkbox"
-                            aria-label={`回答 #${response.id.slice(0, 8)} を選択`}
-                            checked={selectedResponseIdSet.has(response.id)}
-                            disabled={isStalePageData || isActionPending}
-                            onChange={() =>
-                              dispatch({
-                                type: "toggle-response-selection",
-                                responseId: response.id,
-                              })
-                            }
-                            className="mt-1 h-4 w-4 rounded border-input"
-                          />
+                          {canManageResponses && (
+                            <input
+                              type="checkbox"
+                              aria-label={`回答 #${response.id.slice(0, 8)} を選択`}
+                              checked={selectedResponseIdSet.has(response.id)}
+                              disabled={isStalePageData || isActionPending}
+                              onChange={() =>
+                                dispatch({
+                                  type: "toggle-response-selection",
+                                  responseId: response.id,
+                                })
+                              }
+                              className="mt-1 h-4 w-4 rounded border-input"
+                            />
+                          )}
                           <button
                             type="button"
                             onClick={() => handleSelectResponse(response.id)}
@@ -834,65 +843,69 @@ export function FormResponsesContent({
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">回答詳細</h2>
                 <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    aria-label="回答を再検証"
-                    onClick={handleRevalidateCurrentResponse}
-                    disabled={isActionPending}
-                  >
-                    {revalidateResponsesMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                        aria-label="回答を削除"
-                        disabled={isActionPending}
-                      >
-                        {deleteResponseMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          回答を削除しますか？
-                        </AlertDialogTitle>
-                        <AlertDialogDescription className="space-y-2">
-                          <span className="block">
-                            回答 #{state.selectedResponseId.slice(0, 8)}
-                            を削除します。この操作は取り消せません。
-                          </span>
-                          <span className="block">
-                            関連する検証結果も削除され、一覧・分析・エクスポートから除外されます。
-                          </span>
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isActionPending}>
-                          キャンセル
-                        </AlertDialogCancel>
-                        <AlertDialogAction
-                          variant="destructive"
-                          onClick={handleDeleteSelectedResponse}
+                  {canManageResponses && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      aria-label="回答を再検証"
+                      onClick={handleRevalidateCurrentResponse}
+                      disabled={isActionPending}
+                    >
+                      {revalidateResponsesMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
+                  {canManageResponses && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          aria-label="回答を削除"
                           disabled={isActionPending}
                         >
-                          削除する
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                          {deleteResponseMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            回答を削除しますか？
+                          </AlertDialogTitle>
+                          <AlertDialogDescription className="space-y-2">
+                            <span className="block">
+                              回答 #{state.selectedResponseId.slice(0, 8)}
+                              を削除します。この操作は取り消せません。
+                            </span>
+                            <span className="block">
+                              関連する検証結果も削除され、一覧・分析・エクスポートから除外されます。
+                            </span>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel disabled={isActionPending}>
+                            キャンセル
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            variant="destructive"
+                            onClick={handleDeleteSelectedResponse}
+                            disabled={isActionPending}
+                          >
+                            削除する
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -908,6 +921,7 @@ export function FormResponsesContent({
               <ResponseDetailView
                 formId={formId}
                 responseId={state.selectedResponseId}
+                canManageResponses={canManageResponses}
               />
             </section>
           )}

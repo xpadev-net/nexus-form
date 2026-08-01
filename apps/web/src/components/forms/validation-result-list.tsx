@@ -19,6 +19,7 @@ import { useValidationResults } from "@/hooks/forms/use-validation-results";
 interface ValidationResultListProps {
   formId: string;
   responseId: string;
+  canManageResponses: boolean;
 }
 
 type StatusConfig = {
@@ -96,6 +97,7 @@ function groupByRule(items: ValidationItem[]): Array<{
 export function ValidationResultList({
   formId,
   responseId,
+  canManageResponses,
 }: ValidationResultListProps) {
   const {
     validations,
@@ -132,19 +134,21 @@ export function ValidationResultList({
     <div className="space-y-4 rounded border p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">バリデーション結果</h3>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRetry}
-          disabled={retryResponseValidationMutation.isPending}
-        >
-          {retryResponseValidationMutation.isPending ? (
-            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <RefreshCw className="mr-1 h-3.5 w-3.5" />
-          )}
-          再検証
-        </Button>
+        {canManageResponses && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRetry}
+            disabled={retryResponseValidationMutation.isPending}
+          >
+            {retryResponseValidationMutation.isPending ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            )}
+            再検証
+          </Button>
+        )}
       </div>
 
       {validationResultsQuery.isLoading ? (
@@ -170,8 +174,9 @@ export function ValidationResultList({
                   const Icon = config.icon;
                   const isMissing = result.status === "MISSING";
                   const canCancel =
-                    result.status === "PENDING" ||
-                    result.status === "PROCESSING";
+                    canManageResponses &&
+                    (result.status === "PENDING" ||
+                      result.status === "PROCESSING");
 
                   const outputValues =
                     result.output_values && result.output_values.length > 0

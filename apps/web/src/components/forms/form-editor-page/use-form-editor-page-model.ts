@@ -128,6 +128,8 @@ export function useFormEditorPageModel(formId: string) {
   const canUseEditorRealtimeSync =
     !myPermissionQuery.isLoading && hasEditorPermission;
   const canEditForm = canUseEditorRealtimeSync;
+  const canViewResponses =
+    !myPermissionQuery.isLoading && myPermissionQuery.data !== undefined;
 
   const {
     isSaving,
@@ -346,9 +348,8 @@ export function useFormEditorPageModel(formId: string) {
   }, [formId, router, shareToken, tab]);
 
   useEffect(() => {
-    if (canEditForm || activeTab === "editor" || myPermissionQuery.isLoading) {
-      return;
-    }
+    if (myPermissionQuery.isLoading || activeTab === "editor") return;
+    if (activeTab === "responses" ? canViewResponses : canEditForm) return;
     void router.navigate({
       to: "/forms/$id/edit",
       params: { id: formId },
@@ -358,6 +359,7 @@ export function useFormEditorPageModel(formId: string) {
   }, [
     activeTab,
     canEditForm,
+    canViewResponses,
     formId,
     myPermissionQuery.isLoading,
     router,
@@ -401,6 +403,10 @@ export function useFormEditorPageModel(formId: string) {
 
   const handleTabChange = (value: string) => {
     if (!isEditorTab(value) || value === activeTab) return;
+    if (value === "responses" && !canViewResponses) {
+      toast.info("回答を閲覧する権限がありません");
+      return;
+    }
     if (!canEditForm && isEditOnlyEditorTab(value)) {
       toast.info("閲覧権限ではこの設定を変更できません");
       return;
@@ -425,6 +431,7 @@ export function useFormEditorPageModel(formId: string) {
     activeTab,
     archiveForm: () => archiveMutation.mutate(),
     canEditForm,
+    canViewResponses,
     conflictResolutions,
     conflictState,
     deleteForm: () => deleteMutation.mutate(),

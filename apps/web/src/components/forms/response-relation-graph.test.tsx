@@ -53,16 +53,21 @@ vi.mock("./response-detail-view", () => ({
 }));
 
 type SuspicionGroupsOverlayProps = {
+  canManageResponses: boolean;
   onClose: () => void;
   onHoverResponses: (responseIds: string[] | null) => void;
 };
 
 vi.mock("./response-suspicion-groups", () => ({
   ResponseSuspicionGroups: ({
+    canManageResponses,
     onClose,
     onHoverResponses,
   }: SuspicionGroupsOverlayProps) => (
-    <div data-testid="suspicion-groups-overlay">
+    <div
+      data-can-manage-responses={canManageResponses ? "true" : "false"}
+      data-testid="suspicion-groups-overlay"
+    >
       <button type="button" onClick={() => onHoverResponses(["response-0"])}>
         hover response-0
       </button>
@@ -692,13 +697,21 @@ describe("ResponseRelationGraph", () => {
     relationGraphApiMocks.rpc.mockReset();
   });
 
-  function renderGraph(data: ResponseRelationGraphResponse) {
+  function renderGraph(
+    data: ResponseRelationGraphResponse,
+    canManageResponses = true,
+  ) {
     relationGraphQueryData = data;
     const graphContainer = document.createElement("div");
     document.body.append(graphContainer);
     const graphRoot = createRoot(graphContainer);
     act(() => {
-      graphRoot.render(<ResponseRelationGraph formId="form-1" />);
+      graphRoot.render(
+        <ResponseRelationGraph
+          formId="form-1"
+          canManageResponses={canManageResponses}
+        />,
+      );
     });
     return { graphContainer, graphRoot };
   }
@@ -727,6 +740,35 @@ describe("ResponseRelationGraph", () => {
 
   afterEach(() => {
     relationGraphQueryData = undefined;
+  });
+
+  it("forwards canManageResponses to the suspicion-groups overlay", () => {
+    const { nodes, edge } = twoNodeEdgeFixture();
+    const { graphContainer, graphRoot } = renderGraph(
+      graphResponse(nodes, [edge]),
+      false,
+    );
+
+    const toggleButton = Array.from(
+      graphContainer.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("疑義グループ"));
+    if (!toggleButton) {
+      throw new Error("Expected the suspicion-groups toggle button");
+    }
+    act(() => {
+      fireEvent.click(toggleButton);
+    });
+
+    expect(
+      graphContainer
+        .querySelector("[data-testid='suspicion-groups-overlay']")
+        ?.getAttribute("data-can-manage-responses"),
+    ).toBe("false");
+
+    act(() => {
+      graphRoot.unmount();
+    });
+    graphContainer.remove();
   });
 
   it("dims non-highlighted nodes while the suspicion-groups overlay reports a hover, and clears the dimming when the overlay is closed", () => {
@@ -871,7 +913,9 @@ describe("ResponseRelationGraph", () => {
     // previous form's highlighted response id matches nothing in the newly
     // loaded graph, so it must not leave every node dimmed indefinitely.
     act(() => {
-      graphRoot.render(<ResponseRelationGraph formId="form-2" />);
+      graphRoot.render(
+        <ResponseRelationGraph formId="form-2" canManageResponses />,
+      );
     });
 
     const otherNodeCircleAfterFormChange = graphContainer.querySelector(

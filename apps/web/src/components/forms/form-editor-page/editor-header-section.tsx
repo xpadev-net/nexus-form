@@ -16,6 +16,7 @@ import type { FormStatus } from "@/types/validation/shared";
 
 export interface EditorHeaderSectionProps {
   canEditForm: boolean;
+  canViewResponses: boolean;
   formId: string;
   formTitle: string;
   formStatus: FormStatus;
@@ -32,6 +33,7 @@ export interface EditorHeaderSectionProps {
 
 export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
   canEditForm,
+  canViewResponses,
   formId,
   formTitle,
   formStatus,
@@ -102,7 +104,10 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
       >
         {EDITOR_TAB_DEFINITIONS.map((tab) => {
           const Icon = tab.icon;
-          const disabled = !canEditForm && isEditOnlyEditorTab(tab.key);
+          const disabled =
+            tab.key === "responses"
+              ? !canViewResponses
+              : !canEditForm && isEditOnlyEditorTab(tab.key);
           return (
             <TabsTrigger
               key={tab.key}

@@ -34,7 +34,7 @@ function extractDatabaseErrorDetails(error: unknown): Record<string, unknown> {
 }
 
 export const formsResponseAnalyticsRouter = createHonoApp()
-  .use("/:id/responses*", withDualFormAuth("EDITOR"))
+  .use("/:id/responses*", withDualFormAuth("VIEWER"))
   .get("/:id/responses/statuses", async (c) => {
     const formId = c.req.param("id");
     const rows = await db

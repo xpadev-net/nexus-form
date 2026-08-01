@@ -54,6 +54,7 @@ export function FormEditorPage() {
     >
       <EditorHeaderSection
         canEditForm={model.canEditForm}
+        canViewResponses={model.canViewResponses}
         formId={id}
         formTitle={model.formData?.title ?? "フォームエディタ"}
         formStatus={model.formStatus}
@@ -129,7 +130,7 @@ export function FormEditorPage() {
         </TabsContent>
       ) : null}
 
-      {model.canEditForm ? (
+      {model.canViewResponses ? (
         <TabsContent
           value="responses"
           forceMount
@@ -137,7 +138,11 @@ export function FormEditorPage() {
           aria-hidden={model.activeTab !== "responses"}
         >
           {model.responsesEverActive ? (
-            <FormResponsesContent formId={id} shareToken={model.shareToken} />
+            <FormResponsesContent
+              formId={id}
+              shareToken={model.shareToken}
+              canManageResponses={model.canEditForm}
+            />
           ) : null}
         </TabsContent>
       ) : null}

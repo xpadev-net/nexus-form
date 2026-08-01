@@ -28,6 +28,7 @@ interface ResponseDetailViewProps {
   formId: string;
   responseId: string;
   fields?: { label: string; value: string }[];
+  canManageResponses: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,6 +134,7 @@ export function ResponseDetailView({
   formId,
   responseId,
   fields,
+  canManageResponses,
 }: ResponseDetailViewProps) {
   const { validationResultsQuery } = useValidationResults(formId, responseId);
   const uniquenessScore = formatUniquenessScore(
@@ -194,7 +196,11 @@ export function ResponseDetailView({
             </p>
           )}
 
-          <ValidationResultList formId={formId} responseId={responseId} />
+          <ValidationResultList
+            formId={formId}
+            responseId={responseId}
+            canManageResponses={canManageResponses}
+          />
         </>
       )}
     </div>
