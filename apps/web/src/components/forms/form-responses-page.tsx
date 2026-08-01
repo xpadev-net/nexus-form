@@ -921,6 +921,7 @@ export function FormResponsesContent({
               <ResponseDetailView
                 formId={formId}
                 responseId={state.selectedResponseId}
+                canManageResponses={canManageResponses}
               />
             </section>
           )}

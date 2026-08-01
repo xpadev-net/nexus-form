@@ -121,11 +121,15 @@ function createValidation(
   };
 }
 
-function renderList(container: HTMLElement): Root {
+function renderList(container: HTMLElement, canManageResponses = true): Root {
   const root = createRoot(container);
   act(() => {
     root.render(
-      <ValidationResultList formId="form-1" responseId="response-1" />,
+      <ValidationResultList
+        formId="form-1"
+        responseId="response-1"
+        canManageResponses={canManageResponses}
+      />,
     );
   });
   return root;
@@ -202,6 +206,24 @@ describe("ValidationResultList", () => {
 
     expect(mocks.toastError).toHaveBeenCalledWith("キャンセルに失敗しました");
     expect(mocks.validationResultsRefetch).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
+  it("hides retry and cancel controls when canManageResponses is false", () => {
+    const container = document.createElement("div");
+    const root = renderList(container, false);
+
+    expect(
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "再検証",
+      ),
+    ).toBeUndefined();
+    expect(
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "キャンセル",
+      ),
+    ).toBeUndefined();
 
     act(() => root.unmount());
   });

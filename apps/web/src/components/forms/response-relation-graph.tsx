@@ -1949,6 +1949,7 @@ function FloatingWindow({
 type FloatingResponseWindowProps = {
   formId: string;
   responseId: string;
+  canManageResponses: boolean;
   size: WindowSize;
   position: { x: number; y: number };
   zIndex: number;
@@ -1962,6 +1963,7 @@ type FloatingResponseWindowProps = {
 function FloatingResponseWindow({
   formId,
   responseId,
+  canManageResponses,
   size,
   position,
   zIndex,
@@ -1985,7 +1987,11 @@ function FloatingResponseWindow({
       onMove={onMove}
       onResize={onResize}
     >
-      <ResponseDetailView formId={formId} responseId={responseId} />
+      <ResponseDetailView
+        formId={formId}
+        responseId={responseId}
+        canManageResponses={canManageResponses}
+      />
     </FloatingWindow>
   );
 }
@@ -2510,6 +2516,7 @@ export function ResponseRelationGraph({
           key={win.responseId}
           formId={formId}
           responseId={win.responseId}
+          canManageResponses={canManageResponses}
           size={win.size}
           position={win.position}
           zIndex={win.zIndex}

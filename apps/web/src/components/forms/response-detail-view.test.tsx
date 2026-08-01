@@ -19,7 +19,16 @@ vi.mock("@/hooks/forms/use-validation-results", () => ({
 }));
 
 vi.mock("./validation-result-list", () => ({
-  ValidationResultList: () => <section data-testid="validation-results" />,
+  ValidationResultList: ({
+    canManageResponses,
+  }: {
+    canManageResponses: boolean;
+  }) => (
+    <section
+      data-can-manage-responses={canManageResponses ? "true" : "false"}
+      data-testid="validation-results"
+    />
+  ),
 }));
 
 vi.mock("@/components/ui/badge", () => ({
@@ -31,10 +40,19 @@ vi.mock("@/components/ui/badge", () => ({
   }) => <span {...props}>{children}</span>,
 }));
 
-function renderResponseDetail(container: HTMLElement): Root {
+function renderResponseDetail(
+  container: HTMLElement,
+  canManageResponses = true,
+): Root {
   const root = createRoot(container);
   act(() => {
-    root.render(<ResponseDetailView formId="form-1" responseId="response-1" />);
+    root.render(
+      <ResponseDetailView
+        formId="form-1"
+        responseId="response-1"
+        canManageResponses={canManageResponses}
+      />,
+    );
   });
   return root;
 }
@@ -44,6 +62,22 @@ beforeEach(() => {
 });
 
 describe("ResponseDetailView", () => {
+  it("forwards canManageResponses to ValidationResultList", () => {
+    useValidationResultsMock.mockReturnValue({
+      validationResultsQuery: { data: undefined, isLoading: false },
+    });
+    const container = document.createElement("div");
+    const root = renderResponseDetail(container, false);
+
+    expect(
+      container
+        .querySelector("[data-testid='validation-results']")
+        ?.getAttribute("data-can-manage-responses"),
+    ).toBe("false");
+
+    act(() => root.unmount());
+  });
+
   it("renders responseDataJson answers from the detail API", () => {
     useValidationResultsMock.mockReturnValue({
       validationResultsQuery: {
