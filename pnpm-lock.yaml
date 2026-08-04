@@ -60,10 +60,10 @@ importers:
         version: 3.1097.0
       '@hono/node-server':
         specifier: '>=2.0.5'
-        version: 2.0.12(hono@4.12.32)
+        version: 2.0.12(hono@4.12.34)
       '@hono/zod-validator':
         specifier: ^0.9.0
-        version: 0.9.0(hono@4.12.32)(zod@4.4.3)
+        version: 0.9.0(hono@4.12.34)(zod@4.4.3)
       '@nexus-form/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -114,10 +114,10 @@ importers:
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.4)(mysql2@3.23.2(@types/node@24.12.4))
       hono:
         specifier: '>=4.12.27'
-        version: 4.12.32
+        version: 4.12.34
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.12.32)
+        version: 0.5.3(hono@4.12.34)
       ioredis:
         specifier: ^5.11.1
         version: 5.11.1
@@ -430,7 +430,7 @@ importers:
         version: 8.6.0(react@19.2.8)
       hono:
         specifier: '>=4.12.27'
-        version: 4.12.32
+        version: 4.12.34
       input-otp:
         specifier: ^1.4.2
         version: 1.4.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -4681,6 +4681,7 @@ packages:
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
+    deprecated: v4 is no longer maintained, upgrade to v5
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -5471,8 +5472,8 @@ packages:
       unstorage:
         optional: true
 
-  hono@4.12.32:
-    resolution: {integrity: sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg==}
+  hono@4.12.34:
+    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -8698,13 +8699,13 @@ snapshots:
 
   '@hcaptcha/react-hcaptcha@2.0.2': {}
 
-  '@hono/node-server@2.0.12(hono@4.12.32)':
+  '@hono/node-server@2.0.12(hono@4.12.34)':
     dependencies:
-      hono: 4.12.32
+      hono: 4.12.34
 
-  '@hono/zod-validator@0.9.0(hono@4.12.32)(zod@4.4.3)':
+  '@hono/zod-validator@0.9.0(hono@4.12.34)(zod@4.4.3)':
     dependencies:
-      hono: 4.12.32
+      hono: 4.12.34
       zod: 4.4.3
 
   '@hookform/resolvers@3.10.0(react-hook-form@7.83.0(react@19.2.8))':
@@ -8871,7 +8872,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 2.0.12(hono@4.12.32)
+      '@hono/node-server': 2.0.12(hono@4.12.34)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -8881,7 +8882,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.32
+      hono: 4.12.34
       jose: 6.2.5
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -12331,11 +12332,11 @@ snapshots:
     dependencies:
       react-is: 16.13.1
 
-  hono-rate-limiter@0.5.3(hono@4.12.32):
+  hono-rate-limiter@0.5.3(hono@4.12.34):
     dependencies:
-      hono: 4.12.32
+      hono: 4.12.34
 
-  hono@4.12.32: {}
+  hono@4.12.34: {}
 
   hookable@6.1.1: {}
 
