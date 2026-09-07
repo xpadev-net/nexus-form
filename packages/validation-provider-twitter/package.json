@@ -24,8 +24,8 @@
   },
   "dependencies": {
     "@nexus-form/integrations": "workspace:*",
-    "axios": "^1.19.0",
-    "zod": "^4.4.3"
+    "axios": "^1.20.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
