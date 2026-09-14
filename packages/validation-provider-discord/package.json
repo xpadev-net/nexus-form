@@ -23,8 +23,8 @@
   },
   "dependencies": {
     "@nexus-form/integrations": "workspace:*",
-    "p-limit": "^7.3.1",
-    "zod": "^4.4.3"
+    "p-limit": "^7.3.2",
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
