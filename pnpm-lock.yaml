@@ -60,10 +60,10 @@ importers:
         version: 3.1110.0
       '@hono/node-server':
         specifier: '>=2.0.5'
-        version: 2.1.0(hono@4.13.2)
+        version: 2.1.0(hono@4.13.7)
       '@hono/zod-validator':
         specifier: ^0.9.0
-        version: 0.9.0(hono@4.13.2)(zod@4.4.3)
+        version: 0.9.0(hono@4.13.7)(zod@4.4.3)
       '@nexus-form/database':
         specifier: workspace:*
         version: link:../../packages/database
@@ -114,10 +114,10 @@ importers:
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.29.5)(mysql2@3.23.3(@types/node@24.12.4))
       hono:
         specifier: '>=4.12.27'
-        version: 4.13.2
+        version: 4.13.7
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.13.2)
+        version: 0.5.3(hono@4.13.7)
       ioredis:
         specifier: ^5.11.1
         version: 5.11.1
@@ -430,7 +430,7 @@ importers:
         version: 8.6.0(react@19.2.8)
       hono:
         specifier: '>=4.12.27'
-        version: 4.13.2
+        version: 4.13.7
       input-otp:
         specifier: ^1.4.2
         version: 1.4.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -5481,8 +5481,8 @@ packages:
       unstorage:
         optional: true
 
-  hono@4.13.2:
-    resolution: {integrity: sha512-JydRilDRkYBQMt9qR9U92mXxmbGqsqSn/IKOrh4e7/gEbn+0zSr8igTu0obwJoNGN4sez28DIql7FBHWydoJpA==}
+  hono@4.13.7:
+    resolution: {integrity: sha512-c8/gF9ac8Y78/agExVocyLevgR+JlpNB444Py0FSX8pJoPdYUfUzRcXtYEYGwt6l19qIlVZPN5Mfsw9jFShmQQ==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -8716,17 +8716,17 @@ snapshots:
 
   '@hcaptcha/react-hcaptcha@2.1.0': {}
 
-  '@hono/node-server@2.1.0(hono@4.13.2)':
+  '@hono/node-server@2.1.0(hono@4.13.7)':
     dependencies:
-      hono: 4.13.2
+      hono: 4.13.7
 
-  '@hono/node-server@2.1.1(hono@4.13.2)':
+  '@hono/node-server@2.1.1(hono@4.13.7)':
     dependencies:
-      hono: 4.13.2
+      hono: 4.13.7
 
-  '@hono/zod-validator@0.9.0(hono@4.13.2)(zod@4.4.3)':
+  '@hono/zod-validator@0.9.0(hono@4.13.7)(zod@4.4.3)':
     dependencies:
-      hono: 4.13.2
+      hono: 4.13.7
       zod: 4.4.3
 
   '@hookform/resolvers@3.10.0(react-hook-form@7.85.0(react@19.2.8))':
@@ -8893,7 +8893,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 2.1.1(hono@4.13.2)
+      '@hono/node-server': 2.1.1(hono@4.13.7)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -8903,7 +8903,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.13.2
+      hono: 4.13.7
       jose: 6.2.9
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -12351,11 +12351,11 @@ snapshots:
     dependencies:
       react-is: 16.13.1
 
-  hono-rate-limiter@0.5.3(hono@4.13.2):
+  hono-rate-limiter@0.5.3(hono@4.13.7):
     dependencies:
-      hono: 4.13.2
+      hono: 4.13.7
 
-  hono@4.13.2: {}
+  hono@4.13.7: {}
 
   hookable@6.1.1: {}
 
