@@ -15,7 +15,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: nexus-form
-  NODE_VERSION: "24"
+  NODE_VERSION: "24.22.1"
 
 
 concurrency:
