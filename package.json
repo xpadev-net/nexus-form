@@ -32,15 +32,15 @@
     "release:dry-run": "node scripts/validate-release-version.mjs"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.11.3",
-    "@biomejs/biome": "^2.4.16",
-    "@playwright/test": "^1.61.0",
-    "@tailwindcss/postcss": "^4.3.0",
-    "@types/node": "^24.12.4",
-    "lefthook": "^2.1.9",
+    "@axe-core/playwright": "^4.14.0",
+    "@biomejs/biome": "^2.6.2",
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.19.2",
+    "lefthook": "^2.2.2",
     "mysql2": "^3.23.3",
-    "turbo": "^2.9.16",
+    "turbo": "^2.11.10",
     "typescript": "^7.0.2",
-    "unrun": "^0.3.0"
+    "unrun": "^0.3.1"
   }
 }
